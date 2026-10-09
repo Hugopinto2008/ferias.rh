@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f5f0" />
+    <title>Férias — Gestão de equipa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="#inicio" aria-label="Férias, início">
+          <span class="brand-mark">f.</span>
+          <span class="brand-name">folga<span class="brand-dot">.</span></span>
+        </a>
+
+        <div class="workspace-label">ESPAÇO DE TRABALHO</div>
+        <button class="workspace-switch" id="workspace-switch">
+          <span class="workspace-avatar">N</span>
+          <span class="workspace-copy"><strong>Norte & Co.</strong><small>Plano Equipa</small></span>
+          <span class="chevron">⌄</span>
+        </button>
+
+        <div class="nav-label">MENU</div>
+        <nav class="main-nav" aria-label="Navegação principal">
+          <button class="nav-item active" data-view="inicio"><span class="nav-icon">⌂</span>Visão geral</button>
+          <button class="nav-item" data-view="calendario"><span class="nav-icon">▦</span>Calendário</button>
+          <button class="nav-item" data-view="pedidos"><span class="nav-icon">▤</span>Pedidos <span class="nav-count" id="pending-count">0</span></button>
+          <button class="nav-item" data-view="equipa"><span class="nav-icon">♧</span>Equipa</button>
+        </nav>
+
+        <div class="nav-label admin-label">GESTÃO</div>
+        <nav class="main-nav" aria-label="Gestão">
+          <button class="nav-item" data-view="administracao"><span class="nav-icon">⚙</span>Administração</button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="help-block">
+            <span class="help-icon">?</span>
+            <div><strong>Precisa de ajuda?</strong><small>Consulte o centro de apoio</small></div>
+            <span class="help-arrow">↗</span>
+          </div>
+          <button class="profile-switch" id="profile-switch" aria-label="Mudar utilizador">
+            <span class="avatar avatar-green" id="profile-avatar">HP</span>
+            <span class="profile-copy"><strong id="profile-name">Hugo Pinto</strong><small id="profile-role">Administrador</small></span>
+            <span class="chevron">···</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
+          <div class="breadcrumbs"><span>Norte & Co.</span><span class="crumb-slash">/</span><strong id="breadcrumb-current">Visão geral</strong></div>
+          <div class="topbar-actions">
+            <span class="today-label" id="today-label"></span>
+            <button class="icon-button notification-button" id="notification-button" aria-label="Notificações"><span>♧</span><i></i></button>
+            <button class="top-avatar" id="top-avatar" aria-label="Mudar utilizador">HP</button>
+          </div>
+        </header>
+
+        <div class="page-content" id="page-content"></div>
+      </main>
+    </div>
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>
+    <div class="modal-layer" id="modal-layer" hidden></div>
+    <script src="app.js"></script>
+  </body>
+</html>
