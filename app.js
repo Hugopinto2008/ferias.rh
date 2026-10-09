@@ -107,7 +107,9 @@ function pageHeading(eyebrow, title, subtitle, button = "") {
 function render() {
   setProfile();
   const canManage = currentUser().role === "Administrador";
-  document.querySelector(".admin-label").hidden = !canManage;
+  if (!isManager() && ["calendario", "equipa", "administracao"].includes(currentView)) currentView = "inicio";
+  const adminLabel = document.querySelector(".admin-label");
+  if (adminLabel) adminLabel.hidden = !canManage;
   const adminNav = document.querySelector('.nav-item[data-view="administracao"]');
   if (adminNav) adminNav.hidden = !canManage;
   if (!canManage && currentView === "administracao") currentView = "inicio";
@@ -129,17 +131,21 @@ function renderOverview() {
   const upcoming = state.requests.filter((request) => request.status === "Aprovado" && request.end >= dateOffset(0)).sort((a, b) => a.start.localeCompare(b.start));
   const daysLeft = Math.max(0, person.balance - usedDays);
   const createButton = `<button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
-  return `${pageHeading("BEM-VINDO DE VOLTA", `Olá, ${escapeHtml(person.name.split(" ")[0])} 👋`, "Aqui está o resumo das férias da tua equipa.", createButton)}
+  const managementDashboard = isManager();
+  const overviewPanels = managementDashboard
+    ? `<section class="dashboard-columns">
+      <article class="panel"><div class="panel-header"><div><h2 class="panel-title">Calendário da equipa</h2><p class="panel-note">Férias planeadas para os próximos dias</p></div><button class="text-link" data-view="calendario">Ver calendário ↗</button></div>${renderMiniCalendar()}</article>
+      <article class="panel team-panel"><div class="panel-header"><div><h2 class="panel-title">A equipa</h2><p class="panel-note">${state.people.length} colaboradores ativos</p></div><button class="text-link" data-view="equipa">Ver equipa ↗</button></div><div class="team-list">${renderUpcomingRows(upcoming.slice(0, 4))}</div><div class="team-progress"><span></span></div><div class="team-progress-label"><span>Planeamento de férias</span><span>${Math.min(100, Math.round((state.requests.filter((item) => item.status === "Aprovado").length / Math.max(1, state.people.length * 2)) * 100))}%</span></div></article>
+    </section>`
+    : `<section class="panel personal-plan"><div class="panel-header"><div><h2 class="panel-title">As minhas próximas férias</h2><p class="panel-note">Pedidos aprovados para os próximos dias</p></div><button class="text-link" data-view="pedidos">Ver pedidos ↗</button></div><div class="team-list">${renderUpcomingRows(upcoming.filter((request) => request.userId === person.id).slice(0, 4))}</div></section>`;
+  return `${pageHeading("BEM-VINDO DE VOLTA", `Olá, ${escapeHtml(person.name.split(" ")[0])} 👋`, managementDashboard ? "Aqui está o resumo das férias da tua equipa." : "Acompanha o teu saldo e os teus pedidos de férias.", createButton)}
     <section class="overview-grid">
       <article class="metric-card"><div class="metric-top">Os meus dias disponíveis <span class="metric-icon green">◷</span></div><div class="metric-value"><strong>${daysLeft}</strong><span>dias</span></div><div class="metric-foot">de ${person.balance} dias anuais</div></article>
       <article class="metric-card"><div class="metric-top">Pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">${isManager() ? "A aguardar a tua decisão" : "A aguardar aprovação"}</div></article>
-      <article class="metric-card"><div class="metric-top">De férias este mês <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${countAwayThisMonth()}</strong><span>pessoas</span></div><div class="metric-foot">Na equipa Norte & Co.</div></article>
+      <article class="metric-card"><div class="metric-top">${managementDashboard ? "De férias este mês" : "Os meus pedidos"} <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${managementDashboard ? countAwayThisMonth() : myRequests.length}</strong><span>${managementDashboard ? "pessoas" : myRequests.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">${managementDashboard ? "Na equipa Norte & Co." : "No total"}</div></article>
       <article class="metric-card"><div class="metric-top">Dias já utilizados <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${usedDays}</strong><span>dias</span></div><div class="metric-foot"><b>${Math.max(0, person.balance - usedDays)} dias</b> ainda disponíveis</div></article>
     </section>
-    <section class="dashboard-columns">
-      <article class="panel"><div class="panel-header"><div><h2 class="panel-title">Calendário da equipa</h2><p class="panel-note">Férias planeadas para os próximos dias</p></div><button class="text-link" data-view="calendario">Ver calendário ↗</button></div>${renderMiniCalendar()}</article>
-      <article class="panel team-panel"><div class="panel-header"><div><h2 class="panel-title">A equipa</h2><p class="panel-note">${state.people.length} colaboradores ativos</p></div><button class="text-link" data-view="equipa">Ver equipa ↗</button></div><div class="team-list">${renderUpcomingRows(upcoming.slice(0, 4))}</div><div class="team-progress"><span></span></div><div class="team-progress-label"><span>Planeamento de férias</span><span>${Math.min(100, Math.round((state.requests.filter((item) => item.status === "Aprovado").length / Math.max(1, state.people.length * 2)) * 100))}%</span></div></article>
-    </section>
+    ${overviewPanels}
     <section class="panel activity-panel"><div class="panel-header"><div><h2 class="panel-title">Pedidos recentes</h2><p class="panel-note">Acompanha a atividade de férias da equipa</p></div><button class="text-link" data-view="pedidos">Todos os pedidos ↗</button></div><div class="activity-list">${renderActivity()}</div></section>`;
 }
 
