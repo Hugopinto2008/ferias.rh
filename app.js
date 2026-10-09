@@ -1,12 +1,14 @@
-const STORAGE_KEY = "folga-pap-data-v1";
-const PEOPLE = [
-  { id: "u-hugo", name: "Hugo Pinto", role: "Administrador", title: "Administrador", department: "Direção", initials: "HP", color: "#dcebd9", balance: 22 },
-  { id: "u-marta", name: "Marta Silva", role: "Responsável", title: "Gestora de equipa", department: "Marketing", initials: "MS", color: "#f5ddd0", balance: 19 },
-  { id: "u-ines", name: "Inês Costa", role: "Colaborador", title: "Designer", department: "Marketing", initials: "IC", color: "#e9e1f1", balance: 16 },
-  { id: "u-tiago", name: "Tiago Rocha", role: "Colaborador", title: "Analista", department: "Operações", initials: "TR", color: "#e8e2d3", balance: 21 },
-  { id: "u-leonor", name: "Leonor Alves", role: "Responsável", title: "Coordenadora", department: "Operações", initials: "LA", color: "#f3e3aa", balance: 18 },
-  { id: "u-joao", name: "João Mendes", role: "Colaborador", title: "Comercial", department: "Vendas", initials: "JM", color: "#d8e7eb", balance: 20 },
-];
+const STORAGE_KEY = `folga-pap-data-v1-${window.APP_USER.id}`;
+const PEOPLE = [{
+  id: String(window.APP_USER.id),
+  name: window.APP_USER.name,
+  role: window.APP_USER.role,
+  title: window.APP_USER.role,
+  department: window.APP_USER.department,
+  initials: window.APP_USER.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
+  color: "#dcebd9",
+  balance: window.APP_USER.annualLeaveDays,
+}];
 
 function localISO(date) {
   const year = date.getFullYear();
@@ -22,21 +24,10 @@ function dateOffset(days) {
 }
 
 function makeSeed() {
-  const firstMonday = (offset) => {
-    const day = new Date().getDay();
-    return dateOffset(offset + ((8 - day) % 7));
-  };
   return {
     people: structuredClone(PEOPLE),
-    requests: [
-      { id: "r-1", userId: "u-ines", start: firstMonday(7), end: dateOffset(9 + ((8 - new Date().getDay()) % 7)), days: 3, type: "Férias", status: "Aprovado", note: "Viagem em família", created: dateOffset(-5) },
-      { id: "r-2", userId: "u-marta", start: dateOffset(12), end: dateOffset(16), days: 5, type: "Férias", status: "Pendente", note: "", created: dateOffset(-1) },
-      { id: "r-3", userId: "u-tiago", start: dateOffset(19), end: dateOffset(20), days: 2, type: "Férias", status: "Pendente", note: "", created: dateOffset(-1) },
-      { id: "r-4", userId: "u-joao", start: dateOffset(-12), end: dateOffset(-10), days: 3, type: "Férias", status: "Aprovado", note: "", created: dateOffset(-25) },
-      { id: "r-5", userId: "u-leonor", start: dateOffset(27), end: dateOffset(30), days: 4, type: "Férias", status: "Aprovado", note: "", created: dateOffset(-4) },
-      { id: "r-6", userId: "u-hugo", start: dateOffset(35), end: dateOffset(38), days: 4, type: "Férias", status: "Pendente", note: "", created: dateOffset(0) },
-    ],
-    currentUserId: "u-hugo",
+    requests: [],
+    currentUserId: String(window.APP_USER.id),
     settings: { annualDays: 22, conflictLimit: 2, notifications: true },
   };
 }
@@ -63,7 +54,7 @@ const modalLayer = document.querySelector("#modal-layer");
 const monthFormat = new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" });
 const shortDate = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "short" });
 const fullDate = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" });
-const personById = (id) => state.people.find((person) => person.id === id);
+const personById = (id) => state.people.find((person) => String(person.id) === String(id));
 const currentUser = () => personById(state.currentUserId) || state.people[0];
 const isManager = () => ["Administrador", "Responsável"].includes(currentUser().role);
 const initials = (name) => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
@@ -115,9 +106,10 @@ function pageHeading(eyebrow, title, subtitle, button = "") {
 
 function render() {
   setProfile();
-  const canManage = isManager();
+  const canManage = currentUser().role === "Administrador";
   document.querySelector(".admin-label").hidden = !canManage;
-  document.querySelector('.nav-item[data-view="administracao"]').hidden = !canManage;
+  const adminNav = document.querySelector('.nav-item[data-view="administracao"]');
+  if (adminNav) adminNav.hidden = !canManage;
   if (!canManage && currentView === "administracao") currentView = "inicio";
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === currentView));
   const activeNav = document.querySelector(`.nav-item[data-view="${currentView}"]`);
@@ -357,23 +349,6 @@ function changeRequest(id, status) {
   showToast(status === "Aprovado" ? "Pedido aprovado." : status === "Rejeitado" ? "Pedido rejeitado." : "Pedido cancelado.");
 }
 
-function toggleProfileMenu() {
-  document.querySelector(".profile-popover")?.remove();
-  const menu = document.createElement("div");
-  menu.className = "profile-popover";
-  menu.innerHTML = `<div class="popover-title">Mudar perfil de demonstração</div>${state.people.map((person) => `<button class="profile-option ${person.id === currentUser().id ? "selected" : ""}" data-user-id="${person.id}"><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(person.role)} · ${escapeHtml(person.department)}</small></button>`).join("")}`;
-  document.body.append(menu);
-  menu.addEventListener("click", (event) => {
-    const option = event.target.closest("[data-user-id]");
-    if (!option) return;
-    state.currentUserId = option.dataset.userId;
-    save(); menu.remove(); currentView = "inicio"; searchTerm = ""; render();
-  });
-  document.addEventListener("click", function closeMenu(event) {
-    if (!menu.contains(event.target) && !event.target.closest("#profile-switch, #top-avatar")) { menu.remove(); document.removeEventListener("click", closeMenu); }
-  });
-}
-
 function toggleNotifications() {
   document.querySelector(".notification-popover")?.remove();
   const pending = state.requests.filter((request) => request.status === "Pendente" && (isManager() || request.userId === currentUser().id));
@@ -416,7 +391,6 @@ document.addEventListener("click", (event) => {
       if (window.confirm("Esta ação apaga as alterações guardadas neste navegador. Continuar?")) { state = makeSeed(); save(); currentView = "inicio"; render(); showToast("Dados de demonstração repostos."); }
     }
   }
-  if (event.target.closest("#profile-switch, #top-avatar")) toggleProfileMenu();
   if (event.target.closest("#notification-button")) toggleNotifications();
   if (event.target.closest("#mobile-menu")) document.querySelector("#sidebar").classList.toggle("open");
 });

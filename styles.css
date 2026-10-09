@@ -52,6 +52,9 @@ button { color: inherit; cursor: pointer; }
 .help-block small { color: var(--muted); font-size: 9px; }
 .help-arrow { color: #929a90; font-size: 13px; margin-left: auto; }
 .profile-switch { align-items: center; background: transparent; border: 0; border-top: 1px solid var(--line); display: flex; gap: 10px; padding: 15px 2px 2px; text-align: left; width: 100%; }
+.logout-form { margin-left: auto; }
+.logout-button { background: transparent; border: 1px solid var(--line); border-radius: 5px; color: #677166; height: 29px; width: 30px; }
+.logout-button:hover { background: #f7f8f3; color: var(--green); }
 .avatar, .top-avatar { align-items: center; border-radius: 50%; display: inline-flex; flex: 0 0 auto; font: 700 10px Manrope, sans-serif; height: 34px; justify-content: center; width: 34px; }
 .avatar-green, .top-avatar { background: #dcebd9; color: #31543a; }
 .main-area { margin-left: 250px; min-height: 100vh; }
@@ -221,6 +224,17 @@ textarea.form-control { height: 75px; padding: 10px; resize: vertical; }
 .profile-option strong { font-size: 10px; }
 .profile-option small { color: #888f85; font-size: 9px; }
 .no-results { color: #8f978d; font-size: 10px; padding: 20px; text-align: center; }
+.auth-page { background: radial-gradient(ellipse at 12% 7%, #e7efdf 0, transparent 43%), radial-gradient(ellipse at 91% 94%, #f5e8da 0, transparent 40%), #f6f7f3; min-height: 100vh; }
+.auth-shell { align-items: center; display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 32px 18px; }
+.auth-brand { margin: 0 0 25px; }
+.auth-panel { background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 18px 60px rgba(29, 45, 33, .08); max-width: 420px; padding: 30px; width: 100%; }
+.auth-panel h1 { font-size: 23px; margin-bottom: 7px; }
+.auth-form { display: grid; gap: 16px; margin-top: 25px; }
+.auth-submit { margin-top: 3px; width: 100%; }
+.auth-submit:disabled { cursor: not-allowed; opacity: .55; }
+.auth-error { background: #fbede8; border: 1px solid #f2ddd5; border-radius: 5px; color: #99543f; font-size: 11px; line-height: 1.5; margin: 17px 0 0; padding: 10px 12px; }
+.auth-footnote { border-top: 1px solid var(--line); color: #8c9489; font-size: 10px; margin: 21px 0 0; padding-top: 15px; text-align: center; }
+.auth-copyright { color: #929a90; font-size: 9px; letter-spacing: 1px; margin: 23px 0 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 1050px) {
