@@ -56,3 +56,17 @@ CREATE TABLE IF NOT EXISTS leave_requests (
     FOREIGN KEY (decided_by) REFERENCES users (id)
     ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS company_settings (
+  id TINYINT UNSIGNED NOT NULL,
+  annual_days TINYINT UNSIGNED NOT NULL DEFAULT 22,
+  conflict_limit TINYINT UNSIGNED NOT NULL DEFAULT 2,
+  notifications BOOLEAN NOT NULL DEFAULT TRUE,
+  PRIMARY KEY (id),
+  CONSTRAINT chk_company_settings_singleton CHECK (id = 1),
+  CONSTRAINT chk_company_settings_annual_days CHECK (annual_days BETWEEN 1 AND 60),
+  CONSTRAINT chk_company_settings_conflict_limit CHECK (conflict_limit BETWEEN 1 AND 20)
+) ENGINE=InnoDB;
+
+INSERT INTO company_settings (id) VALUES (1)
+  ON DUPLICATE KEY UPDATE id = VALUES(id);

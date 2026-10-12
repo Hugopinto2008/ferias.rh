@@ -28,6 +28,7 @@ $canManageTeam = in_array($user['role'], ['Administrador', 'Responsável'], true
           'department' => $user['department'] ?? 'Sem departamento',
           'annualLeaveDays' => (int) $user['annual_leave_days'],
       ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+          window.APP_CSRF_TOKEN = <?= json_encode(csrfToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     </script>
     <div class="app-shell">
       <aside class="sidebar" id="sidebar">

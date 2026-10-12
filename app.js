@@ -1,15 +1,3 @@
-const STORAGE_KEY = `folga-pap-data-v1-${window.APP_USER.id}`;
-const PEOPLE = [{
-  id: String(window.APP_USER.id),
-  name: window.APP_USER.name,
-  role: window.APP_USER.role,
-  title: window.APP_USER.role,
-  department: window.APP_USER.department,
-  initials: window.APP_USER.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
-  color: "#dcebd9",
-  balance: window.APP_USER.annualLeaveDays,
-}];
-
 function localISO(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -23,26 +11,12 @@ function dateOffset(days) {
   return localISO(date);
 }
 
-function makeSeed() {
-  return {
-    people: structuredClone(PEOPLE),
-    requests: [],
-    currentUserId: String(window.APP_USER.id),
-    settings: { annualDays: 22, conflictLimit: 2, notifications: true },
-  };
-}
-
-function readStore() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.people && saved.requests) return saved;
-  } catch (error) { console.warn("Não foi possível carregar os dados guardados.", error); }
-  const seed = makeSeed();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
-  return seed;
-}
-
-let state = readStore();
+let state = {
+  people: [],
+  requests: [],
+  currentUserId: String(window.APP_USER.id),
+  settings: { annualDays: 22, conflictLimit: 2, notifications: true },
+};
 let currentView = "inicio";
 let calendarDate = new Date();
 let requestFilter = "Todos";
@@ -59,8 +33,50 @@ const currentUser = () => personById(state.currentUserId) || state.people[0];
 const isManager = () => ["Administrador", "Responsável"].includes(currentUser().role);
 const initials = (name) => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+async function apiRequest(action, values = {}) {
+  const response = await fetch("api/app.php", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": window.APP_CSRF_TOKEN },
+    body: JSON.stringify({ action, ...values }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Não foi possível guardar as alterações.");
+  return result;
+}
+
+async function loadData() {
+  const response = await fetch("api/app.php", { credentials: "same-origin", cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Não foi possível carregar os dados.");
+
+  const colors = ["#dcebd9", "#f5ddd0", "#d8e7eb", "#f3e3aa", "#e7e4f1"];
+  state = {
+    currentUserId: String(data.user.id),
+    people: data.people.map((person, index) => ({
+      id: String(person.id),
+      name: person.name,
+      role: person.role,
+      title: person.role,
+      department: person.department || "Sem departamento",
+      initials: initials(person.name),
+      color: colors[index % colors.length],
+      balance: Number(person.annual_leave_days),
+    })),
+    requests: data.requests.map((request) => ({
+      id: String(request.id),
+      userId: String(request.user_id),
+      start: request.start_date,
+      end: request.end_date,
+      days: Number(request.working_days),
+      type: request.type,
+      status: request.status,
+      note: request.note || "",
+      created: request.created,
+    })),
+    settings: data.settings,
+  };
+  render();
 }
 
 function escapeHtml(value = "") {
@@ -119,7 +135,12 @@ function render() {
   if (currentView === "calendario") page.innerHTML = renderCalendarPage();
   else if (currentView === "pedidos") page.innerHTML = renderRequestsPage();
   else if (currentView === "equipa") page.innerHTML = renderTeamPage();
-  else if (currentView === "administracao") page.innerHTML = renderAdminPage();
+  else if (currentView === "administracao") {
+    page.innerHTML = renderAdminPage();
+    page.querySelectorAll(".settings-section").forEach((section) => {
+      if (section.textContent.includes("Dados locais")) section.remove();
+    });
+  }
   else page.innerHTML = renderOverview();
 }
 
@@ -258,7 +279,7 @@ function renderTeamPage() {
     const used = state.requests.filter((request) => request.userId === person.id && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
     return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, person.balance - used)} de ${person.balance} dias</strong></div></article>`;
   }).join("");
-  const button = isManager() ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
+  const button = currentUser().role === "Administrador" ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
   return `${pageHeading("PESSOAS", "A tua equipa", `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.`, button)}<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div><section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
 }
 
@@ -272,7 +293,7 @@ function openModal(title, subtitle, body, onSubmit) {
   modalLayer.hidden = false;
   modalLayer.querySelector("form").addEventListener("submit", (event) => {
     event.preventDefault();
-    onSubmit(new FormData(event.currentTarget));
+    Promise.resolve(onSubmit(new FormData(event.currentTarget))).catch((error) => showToast(error.message));
   });
   modalLayer.addEventListener("click", closeOutsideModal, { once: true });
 }
@@ -312,8 +333,9 @@ function newRequestModal() {
     const used = state.requests.filter((request) => request.userId === userId && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
     if (days > Math.max(0, employee.balance - used)) { showToast("O pedido excede o saldo de férias disponível."); return; }
     if (overlapping(userId, start, end) + 1 > state.settings.conflictLimit) { showToast("Aviso: há várias pessoas de férias neste período."); }
-    state.requests.unshift({ id: `r-${Date.now()}`, userId, start, end, days, type: form.get("type"), status: "Pendente", note: form.get("note"), created: dateOffset(0) });
-    save(); closeModal(); render(); showToast("Pedido enviado para aprovação.");
+    return apiRequest("request-create", { userId, start, end, type: form.get("type"), note: form.get("note") })
+      .then(() => { closeModal(); return loadData(); })
+      .then(() => showToast("Pedido enviado para aprovação."));
   });
   const startInput = modalLayer.querySelector("#request-start");
   const endInput = modalLayer.querySelector("#request-end");
@@ -328,13 +350,18 @@ function newRequestModal() {
 }
 
 function newEmployeeModal() {
-  openModal("Adicionar colaborador", "Cria um novo perfil para a equipa.", `<div class="form-field"><label for="employee-name">Nome completo</label><input class="form-control" id="employee-name" name="name" required maxlength="60" /></div><div class="form-row"><div class="form-field"><label for="employee-role">Perfil</label><select class="form-control" id="employee-role" name="role"><option>Colaborador</option><option>Responsável</option></select></div><div class="form-field"><label for="employee-department">Departamento</label><input class="form-control" id="employee-department" name="department" required maxlength="40" /></div></div><div class="form-field"><label for="employee-title">Função</label><input class="form-control" id="employee-title" name="title" maxlength="50" placeholder="Ex.: Designer" /></div><div class="form-field"><label for="employee-balance">Dias anuais de férias</label><input class="form-control" id="employee-balance" name="balance" type="number" min="1" max="60" value="${state.settings.annualDays}" required /></div>`, (form) => {
+  openModal("Adicionar colaborador", "Cria uma conta para o colaborador iniciar sessão.", `<div class="form-field"><label for="employee-name">Nome completo</label><input class="form-control" id="employee-name" name="name" required maxlength="120" /></div><div class="form-field"><label for="employee-email">E-mail de acesso</label><input class="form-control" id="employee-email" name="email" type="email" required maxlength="190" /></div><div class="form-field"><label for="employee-password">Palavra-passe inicial</label><input class="form-control" id="employee-password" name="password" type="password" required minlength="12" autocomplete="new-password" /><p class="form-hint">Mínimo de 12 caracteres. O colaborador pode iniciar sessão com este e-mail.</p></div><div class="form-row"><div class="form-field"><label for="employee-role">Perfil</label><select class="form-control" id="employee-role" name="role"><option>Colaborador</option><option>Responsável</option><option>Administrador</option></select></div><div class="form-field"><label for="employee-department">Departamento</label><input class="form-control" id="employee-department" name="department" required maxlength="80" /></div></div><div class="form-field"><label for="employee-balance">Dias anuais de férias</label><input class="form-control" id="employee-balance" name="annualLeaveDays" type="number" min="1" max="60" value="${state.settings.annualDays}" required /></div>`, (form) => {
     const name = String(form.get("name")).trim();
     const department = String(form.get("department")).trim();
     if (!name || !department) { showToast("Preenche o nome e o departamento."); return; }
-    const palette = ["#e7e4f1", "#dcebd9", "#f5ddd0", "#d8e7eb", "#f3e3aa"];
-    state.people.push({ id: `u-${Date.now()}`, name, role: form.get("role"), title: String(form.get("title")).trim() || "Colaborador", department, initials: initials(name), color: palette[state.people.length % palette.length], balance: Number(form.get("balance")) });
-    save(); closeModal(); render(); showToast("Colaborador adicionado à equipa.");
+    return apiRequest("employee-create", {
+      name,
+      email: String(form.get("email")).trim(),
+      password: String(form.get("password")),
+      role: form.get("role"),
+      department,
+      annualLeaveDays: Number(form.get("annualLeaveDays")),
+    }).then(() => { closeModal(); return loadData(); }).then(() => showToast("Conta de colaborador criada."));
   });
   modalLayer.querySelector(".modal-footer .primary-button").textContent = "Adicionar colaborador";
 }
@@ -346,13 +373,15 @@ function showToast(message) {
   toastTimeout = setTimeout(() => { region.innerHTML = ""; }, 3200);
 }
 
-function changeRequest(id, status) {
-  const request = state.requests.find((item) => item.id === id);
-  if (!request) return;
+async function changeRequest(id, status) {
   if (status === "Rejeitado" && !window.confirm("Queres rejeitar este pedido?")) return;
-  request.status = status;
-  save(); render();
-  showToast(status === "Aprovado" ? "Pedido aprovado." : status === "Rejeitado" ? "Pedido rejeitado." : "Pedido cancelado.");
+  try {
+    await apiRequest("request-status", { id, status });
+    await loadData();
+    showToast(status === "Aprovado" ? "Pedido aprovado." : status === "Rejeitado" ? "Pedido rejeitado." : "Pedido cancelado.");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function toggleNotifications() {
@@ -389,12 +418,13 @@ document.addEventListener("click", (event) => {
     else if (name === "calendar-next" || name === "mini-next") { calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1); render(); }
     else if (name === "today") { calendarDate = new Date(); render(); }
     else if (name === "save-settings") {
-      state.settings.annualDays = Math.min(60, Math.max(1, Number(document.querySelector("#annual-days").value) || 22));
-      state.settings.conflictLimit = Math.min(20, Math.max(1, Number(document.querySelector("#conflict-limit").value) || 2));
-      state.settings.notifications = document.querySelector("#notifications-setting").checked;
-      save(); render(); showToast("Definições guardadas.");
+      apiRequest("settings-update", {
+        annualDays: Number(document.querySelector("#annual-days").value),
+        conflictLimit: Number(document.querySelector("#conflict-limit").value),
+        notifications: document.querySelector("#notifications-setting").checked,
+      }).then(() => loadData()).then(() => showToast("Definições guardadas.")).catch((error) => showToast(error.message));
     } else if (name === "reset-data") {
-      if (window.confirm("Esta ação apaga as alterações guardadas neste navegador. Continuar?")) { state = makeSeed(); save(); currentView = "inicio"; render(); showToast("Dados de demonstração repostos."); }
+      showToast("Os dados são partilhados no servidor e não podem ser repostos neste navegador.");
     }
   }
   if (event.target.closest("#notification-button")) toggleNotifications();
@@ -416,4 +446,6 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "status-filter") { requestFilter = event.target.value; render(); }
 });
 
-render();
+loadData().catch((error) => {
+  page.innerHTML = `<section class="panel"><div class="empty-state"><strong>Não foi possível carregar a área de trabalho</strong>${escapeHtml(error.message)}</div></section>`;
+});
