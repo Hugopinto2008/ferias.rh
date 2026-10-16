@@ -4,7 +4,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/config/auth.php';
 $user = requireAuthenticatedUser();
 $isAdministrator = $user['role'] === 'Administrador';
-$canManageTeam = in_array($user['role'], ['Administrador', 'Responsável'], true);
 ?>
 <!doctype html>
 <html lang="pt">
@@ -28,7 +27,6 @@ $canManageTeam = in_array($user['role'], ['Administrador', 'Responsável'], true
           'department' => $user['department'] ?? 'Sem departamento',
           'annualLeaveDays' => (int) $user['annual_leave_days'],
       ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-          window.APP_CSRF_TOKEN = <?= json_encode(csrfToken(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
     </script>
     <div class="app-shell">
       <aside class="sidebar" id="sidebar">
@@ -47,11 +45,9 @@ $canManageTeam = in_array($user['role'], ['Administrador', 'Responsável'], true
         <div class="nav-label">MENU</div>
         <nav class="main-nav" aria-label="Navegação principal">
           <button class="nav-item active" data-view="inicio"><span class="nav-icon">⌂</span>Visão geral</button>
-          <button class="nav-item" data-view="pedidos"><span class="nav-icon">▤</span><?= $canManageTeam ? 'Pedidos' : 'Os meus pedidos' ?> <span class="nav-count" id="pending-count">0</span></button>
-          <?php if ($canManageTeam): ?>
-            <button class="nav-item" data-view="calendario"><span class="nav-icon">▦</span>Calendário</button>
-            <button class="nav-item" data-view="equipa"><span class="nav-icon">♧</span>Equipa</button>
-          <?php endif; ?>
+          <button class="nav-item" data-view="calendario"><span class="nav-icon">▦</span>Calendário</button>
+          <button class="nav-item" data-view="pedidos"><span class="nav-icon">▤</span>Pedidos <span class="nav-count" id="pending-count">0</span></button>
+          <button class="nav-item" data-view="equipa"><span class="nav-icon">♧</span>Equipa</button>
         </nav>
 
         <?php if ($isAdministrator): ?>
