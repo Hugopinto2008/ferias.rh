@@ -10,7 +10,7 @@ $databaseReady = true;
 try {
     $existingUser = authenticatedUser();
     if ($existingUser !== null) {
-        header('Location: index.php');
+        header('Location: index.html');
         exit;
     }
 } catch (Throwable $error) {
@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $databaseReady) {
                     session_regenerate_id(true);
                     $_SESSION['user_id'] = (int) $user['id'];
                     unset($_SESSION['csrf_token']);
-                    header('Location: index.php');
+                    header('Location: index.html');
                     exit;
                 }
             } catch (Throwable $error) {
