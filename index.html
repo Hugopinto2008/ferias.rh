@@ -11,7 +11,53 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="auth-gate" class="auth-page" style="display: block;">
+      <main class="auth-shell">
+        <a class="brand auth-brand" href="index.html" aria-label="Folga">
+          <span class="brand-mark">f.</span><span class="brand-name">folga<span class="brand-dot">.</span></span>
+        </a>
+
+        <section id="access-choice" class="auth-panel">
+          <p class="eyebrow">ESPAÇO DE TRABALHO</p>
+          <h1>Escolhe a tua área</h1>
+          <p class="page-subtitle">Entra como administrador ou como colaborador.</p>
+
+          <div class="auth-form">
+            <button class="primary-button auth-submit" type="button" data-access-profile="admin">Área do Administrador</button>
+            <button class="primary-button auth-submit" type="button" data-access-profile="employee">Acesso dos Funcionários</button>
+          </div>
+        </section>
+
+        <section id="login-panel" class="auth-panel" hidden>
+          <p class="eyebrow">ACESSO</p>
+          <h1 id="login-title">Área do Administrador</h1>
+          <p id="login-subtitle" class="page-subtitle">Inicia sessão para gerir as férias.</p>
+
+          <form id="login-form" class="auth-form" method="post" action="login.php">
+            <input type="hidden" name="csrf_token" id="csrf-token" value="" />
+            <input type="hidden" name="profile" id="profile" value="admin" />
+
+            <div class="form-field">
+              <label for="email">E-mail</label>
+              <input class="form-control" id="email" name="email" type="email" autocomplete="username" required maxlength="190" />
+            </div>
+
+            <div class="form-field">
+              <label for="password">Palavra-passe</label>
+              <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required />
+            </div>
+
+            <button class="primary-button auth-submit" type="submit">Entrar</button>
+          </form>
+
+          <p class="auth-footnote"><button type="button" class="quiet-button" id="back-choice">Voltar à escolha</button></p>
+        </section>
+
+        <p class="auth-copyright">FOLGA · GESTÃO DE FÉRIAS</p>
+      </main>
+    </div>
+
+    <div id="app-shell" class="app-shell" hidden>
       <aside class="sidebar" id="sidebar">
         <a class="brand" href="index.html" aria-label="Folga, início">
           <span class="brand-mark">f.</span>
@@ -48,7 +94,7 @@
             <span class="avatar avatar-green" id="profile-avatar"></span>
             <span class="profile-copy"><strong id="profile-name"></strong><small id="profile-role"></small></span>
             <form class="logout-form" method="post" action="logout.php">
-              <input type="hidden" name="csrf_token" id="csrf-token" value="" />
+              <input type="hidden" name="csrf_token" id="csrf-token-app" value="" />
               <button class="logout-button" type="submit" title="Terminar sessão" aria-label="Terminar sessão">↪</button>
             </form>
           </div>
@@ -69,13 +115,64 @@
         <div class="page-content" id="page-content"></div>
       </main>
     </div>
+
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
     <div class="modal-layer" id="modal-layer" hidden></div>
+
     <script>
+      const authGate = document.getElementById("auth-gate");
+      const appShell = document.getElementById("app-shell");
+      const accessChoice = document.getElementById("access-choice");
+      const loginPanel = document.getElementById("login-panel");
+      const loginTitle = document.getElementById("login-title");
+      const loginSubtitle = document.getElementById("login-subtitle");
+      const profileField = document.getElementById("profile");
+      const csrfField = document.getElementById("csrf-token");
+      const backChoice = document.getElementById("back-choice");
+
+      async function loadCsrfToken() {
+        const response = await fetch("api/csrf.php", { credentials: "same-origin" });
+        if (!response.ok) throw new Error("Não foi possível iniciar a sessão de acesso.");
+        return response.text();
+      }
+
+      function showAccessChooser() {
+        accessChoice.hidden = false;
+        loginPanel.hidden = true;
+      }
+
+      function showLoginForm(profile) {
+        const isAdmin = profile === "admin";
+        loginTitle.textContent = isAdmin ? "Área do Administrador" : "Acesso dos Funcionários";
+        loginSubtitle.textContent = isAdmin ? "Inicia sessão para gerir as férias da empresa." : "Inicia sessão para consultar e gerir as tuas férias.";
+        profileField.value = profile;
+        accessChoice.hidden = true;
+        loginPanel.hidden = false;
+      }
+
+      document.querySelectorAll("[data-access-profile]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const profile = button.dataset.accessProfile;
+          try {
+            csrfField.value = await loadCsrfToken();
+            showLoginForm(profile);
+          } catch (error) {
+            showAccessChooser();
+            window.alert(error.message);
+          }
+        });
+      });
+
+      backChoice.addEventListener("click", () => {
+        showAccessChooser();
+      });
+
       fetch("api/me.php", { credentials: "same-origin" })
         .then(async (response) => {
           if (response.status === 401) {
-            window.location.replace("login.php");
+            authGate.hidden = false;
+            appShell.hidden = true;
+            showAccessChooser();
             return null;
           }
           if (!response.ok) throw new Error("Não foi possível carregar o perfil.");
@@ -83,14 +180,19 @@
         })
         .then((data) => {
           if (!data) return;
+          authGate.hidden = true;
+          appShell.hidden = false;
           window.APP_USER = data.user;
-          document.querySelector("#csrf-token").value = data.csrfToken;
+          document.getElementById("csrf-token-app").value = data.csrfToken;
           const script = document.createElement("script");
           script.src = "app.js";
           document.body.append(script);
         })
         .catch(() => {
-          document.querySelector("#page-content").textContent = "Não foi possível carregar a aplicação. Tenta novamente mais tarde.";
+          authGate.hidden = false;
+          appShell.hidden = true;
+          showAccessChooser();
+          window.alert("Não foi possível carregar a aplicação. Tenta novamente mais tarde.");
         });
     </script>
   </body>
