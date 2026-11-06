@@ -21,6 +21,7 @@
           <p class="eyebrow">ESPAÇO DE TRABALHO</p>
           <h1>Escolhe a tua área</h1>
           <p class="page-subtitle">Entra como administrador ou como colaborador.</p>
+          <p class="auth-error" id="setup-warning" role="alert" hidden></p>
 
           <div class="auth-form">
             <button class="primary-button auth-submit" type="button" data-access-profile="admin">Área do Administrador</button>
@@ -33,8 +34,7 @@
           <h1 id="login-title">Área do Administrador</h1>
           <p id="login-subtitle" class="page-subtitle">Inicia sessão para gerir as férias.</p>
 
-          <form id="login-form" class="auth-form" method="post" action="login.php">
-            <input type="hidden" name="csrf_token" id="csrf-token" value="" />
+          <form id="login-form" class="auth-form">
             <input type="hidden" name="profile" id="profile" value="admin" />
 
             <div class="form-field">
@@ -47,7 +47,8 @@
               <input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required />
             </div>
 
-            <button class="primary-button auth-submit" type="submit">Entrar</button>
+            <p class="auth-error" id="auth-error" role="alert" hidden></p>
+            <button class="primary-button auth-submit" id="login-submit" type="submit">Entrar</button>
           </form>
 
           <p class="auth-footnote"><button type="button" class="quiet-button" id="back-choice">Voltar à escolha</button></p>
@@ -93,10 +94,7 @@
           <div class="profile-switch">
             <span class="avatar avatar-green" id="profile-avatar"></span>
             <span class="profile-copy"><strong id="profile-name"></strong><small id="profile-role"></small></span>
-            <form class="logout-form" method="post" action="logout.php">
-              <input type="hidden" name="csrf_token" id="csrf-token-app" value="" />
-              <button class="logout-button" type="submit" title="Terminar sessão" aria-label="Terminar sessão">↪</button>
-            </form>
+            <button class="logout-button" id="logout-button" type="button" title="Terminar sessão" aria-label="Terminar sessão">↪</button>
           </div>
         </div>
       </aside>
@@ -119,6 +117,8 @@
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
     <div class="modal-layer" id="modal-layer" hidden></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
     <script>
       const authGate = document.getElementById("auth-gate");
       const appShell = document.getElementById("app-shell");
@@ -127,13 +127,51 @@
       const loginTitle = document.getElementById("login-title");
       const loginSubtitle = document.getElementById("login-subtitle");
       const profileField = document.getElementById("profile");
-      const csrfField = document.getElementById("csrf-token");
       const backChoice = document.getElementById("back-choice");
+      const loginForm = document.getElementById("login-form");
+      const loginSubmit = document.getElementById("login-submit");
+      const authError = document.getElementById("auth-error");
+      const setupWarning = document.getElementById("setup-warning");
+      const supabaseConfig = window.FOLGA_SUPABASE_CONFIG;
+      const supabaseClient = window.supabase && supabaseConfig
+        && !supabaseConfig.url.includes("YOUR_PROJECT")
+        && !supabaseConfig.anonKey.includes("YOUR_SUPABASE")
+        ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey)
+        : null;
 
-      async function loadCsrfToken() {
-        const response = await fetch("api/csrf.php", { credentials: "same-origin" });
-        if (!response.ok) throw new Error("Não foi possível iniciar a sessão de acesso.");
-        return response.text();
+      function showAuthError(message) {
+        authError.textContent = message;
+        authError.hidden = false;
+      }
+
+      async function getProfile(user) {
+        const { data, error } = await supabaseClient
+          .from("profiles")
+          .select("id, full_name, role, department, annual_leave_days")
+          .eq("id", user.id)
+          .single();
+        if (error || !data) throw new Error("A conta não tem um perfil ativo. Contacta o administrador.");
+        return {
+          id: user.id,
+          name: data.full_name,
+          email: user.email,
+          role: data.role,
+          department: data.department || "Sem departamento",
+          annualLeaveDays: data.annual_leave_days,
+        };
+      }
+
+      async function enterApp(user) {
+        const userProfile = await getProfile(user);
+        window.APP_USER = userProfile;
+        authGate.hidden = true;
+        appShell.hidden = false;
+        if (!document.getElementById("app-script")) {
+          const script = document.createElement("script");
+          script.id = "app-script";
+          script.src = "app.js";
+          document.body.append(script);
+        }
       }
 
       function showAccessChooser() {
@@ -153,47 +191,77 @@
       document.querySelectorAll("[data-access-profile]").forEach((button) => {
         button.addEventListener("click", async () => {
           const profile = button.dataset.accessProfile;
-          try {
-            csrfField.value = await loadCsrfToken();
-            showLoginForm(profile);
-          } catch (error) {
-            showAccessChooser();
-            window.alert(error.message);
-          }
+          authError.hidden = true;
+          setupWarning.hidden = true;
+          showLoginForm(profile);
         });
+      });
+
+      loginForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        authError.hidden = true;
+        if (!supabaseClient) {
+          showAuthError("Falta configurar o projeto Supabase. Segue os passos do README.");
+          return;
+        }
+
+        loginSubmit.disabled = true;
+        try {
+          const formData = new FormData(loginForm);
+          const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: String(formData.get("email")).trim(),
+            password: String(formData.get("password")),
+          });
+          if (error) throw new Error("E-mail ou palavra-passe incorretos.");
+
+          const userProfile = await getProfile(data.user);
+          const expectedRole = profileField.value === "admin" ? "Administrador" : null;
+          const isEmployee = ["Colaborador", "Responsável"].includes(userProfile.role);
+          if ((expectedRole && userProfile.role !== expectedRole) || (!expectedRole && !isEmployee)) {
+            await supabaseClient.auth.signOut();
+            throw new Error("Esta conta não tem acesso à área selecionada.");
+          }
+          await enterApp(data.user);
+        } catch (error) {
+          showAuthError(error.message || "Não foi possível iniciar sessão.");
+        } finally {
+          loginSubmit.disabled = false;
+        }
       });
 
       backChoice.addEventListener("click", () => {
+        authError.hidden = true;
         showAccessChooser();
       });
 
-      fetch("api/me.php", { credentials: "same-origin" })
-        .then(async (response) => {
-          if (response.status === 401) {
-            authGate.hidden = false;
-            appShell.hidden = true;
+      document.getElementById("logout-button").addEventListener("click", async () => {
+        await supabaseClient.auth.signOut();
+        window.location.reload();
+      });
+
+      async function restoreSession() {
+        if (!supabaseClient) {
+          setupWarning.textContent = "Configura o Supabase para ativar o login. Consulta o README.";
+          setupWarning.hidden = false;
+          return;
+        }
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+          try {
+            await enterApp(session.user);
+          } catch (error) {
+            await supabaseClient.auth.signOut();
             showAccessChooser();
-            return null;
+            setupWarning.textContent = error.message;
+            setupWarning.hidden = false;
           }
-          if (!response.ok) throw new Error("Não foi possível carregar o perfil.");
-          return response.json();
-        })
-        .then((data) => {
-          if (!data) return;
-          authGate.hidden = true;
-          appShell.hidden = false;
-          window.APP_USER = data.user;
-          document.getElementById("csrf-token-app").value = data.csrfToken;
-          const script = document.createElement("script");
-          script.src = "app.js";
-          document.body.append(script);
-        })
-        .catch(() => {
-          authGate.hidden = false;
-          appShell.hidden = true;
-          showAccessChooser();
-          window.alert("Não foi possível carregar a aplicação. Tenta novamente mais tarde.");
-        });
+        }
+      }
+
+      restoreSession().catch((error) => {
+        showAccessChooser();
+        showAuthError(error.message || "Não foi possível restaurar a sessão.");
+      });
     </script>
   </body>
 </html>
