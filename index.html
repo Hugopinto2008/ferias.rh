@@ -257,11 +257,6 @@
           const demoUser = Object.values(DEMO_USERS).find((item) => item.email.toLowerCase() === email) || DEMO_USERS[email];
 
           if (demoUser && demoUser.password === password) {
-            const expectedRole = selectedProfile === "admin" ? "Administrador" : null;
-            const isEmployee = ["Colaborador", "Responsável"].includes(demoUser.role);
-            if ((expectedRole && demoUser.role !== expectedRole) || (!expectedRole && !isEmployee)) {
-              throw new Error("Esta conta não tem acesso à área selecionada.");
-            }
             await enterApp({ id: demoUser.id, email: demoUser.email, role: demoUser.role });
             return;
           }
