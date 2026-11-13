@@ -51,10 +51,14 @@
             <button class="primary-button auth-submit" id="login-submit" type="submit">Entrar</button>
           </form>
 
+          <div class="auth-footnote demo-actions">
+            <button type="button" class="secondary-button demo-fill" data-demo-user="admin">Entrar como Admin</button>
+            <button type="button" class="secondary-button demo-fill" data-demo-user="funcionario">Entrar como Funcionário</button>
+          </div>
           <p class="auth-footnote demo-credentials" id="demo-credentials">
             Contas de teste:<br />
             Admin: <strong>admin@folga.local</strong> / <strong>admin123</strong><br />
-            Teste: <strong>teste@folga.local</strong> / <strong>teste123</strong>
+            Funcionário: <strong>funcionario@folga.local</strong> / <strong>func123</strong>
           </p>
           <p class="auth-footnote"><button type="button" class="quiet-button" id="back-choice">Voltar à escolha</button></p>
         </section>
@@ -153,14 +157,14 @@
           annualLeaveDays: 22,
           password: "admin123",
         },
-        "teste@folga.local": {
+        "funcionario@folga.local": {
           id: "demo-employee",
-          email: "teste@folga.local",
-          name: "Colaborador Teste",
+          email: "funcionario@folga.local",
+          name: "Funcionário Teste",
           role: "Colaborador",
           department: "Operações",
           annualLeaveDays: 22,
-          password: "teste123",
+          password: "func123",
         },
       });
 
@@ -226,6 +230,15 @@
         loginPanel.hidden = true;
       }
 
+      function autoFillDemoLogin(type) {
+        const account = type === "admin" ? DEMO_USERS["admin@folga.local"] : DEMO_USERS["funcionario@folga.local"];
+        document.getElementById("email").value = account.email;
+        document.getElementById("password").value = account.password;
+        profileField.value = type === "admin" ? "admin" : "employee";
+        authError.hidden = true;
+        loginSubmit.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
       function showLoginForm(profile) {
         const isAdmin = profile === "admin";
         loginTitle.textContent = isAdmin ? "Área do Administrador" : "Acesso dos Funcionários";
@@ -241,6 +254,13 @@
           authError.hidden = true;
           setupWarning.hidden = true;
           showLoginForm(profile);
+        });
+      });
+
+      document.querySelectorAll(".demo-fill").forEach((button) => {
+        button.addEventListener("click", () => {
+          const demoType = button.dataset.demoUser;
+          autoFillDemoLogin(demoType);
         });
       });
 
