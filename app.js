@@ -1,4 +1,5 @@
-const STORAGE_KEY = `folga-pap-data-v1-${window.APP_USER.id}`;
+const STORAGE_KEY = "folga-pap-data-v2";
+const LEGACY_STORAGE_PREFIX = "folga-pap-data-v1-";
 const PEOPLE = [{
   id: String(window.APP_USER.id),
   name: window.APP_USER.name,
@@ -33,16 +34,37 @@ function makeSeed() {
 }
 
 function readStore() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.people && saved.requests) return saved;
-  } catch (error) { console.warn("Não foi possível carregar os dados guardados.", error); }
   const seed = makeSeed();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+  const savedStores = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith(LEGACY_STORAGE_PREFIX)) continue;
+      const legacy = JSON.parse(localStorage.getItem(key));
+      if (legacy?.people && legacy?.requests) savedStores.push(legacy);
+    }
+    const shared = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (shared?.people && shared?.requests) savedStores.push(shared);
+  } catch (error) { console.warn("Não foi possível carregar os dados guardados.", error); }
+  if (!savedStores.length) return seed;
+
+  const people = new Map();
+  const requests = new Map();
+  savedStores.forEach((saved) => {
+    saved.people.forEach((person) => people.set(String(person.id), person));
+    saved.requests.forEach((request) => requests.set(String(request.id), request));
+  });
+  const profile = PEOPLE[0];
+  const existingProfile = people.get(String(profile.id));
+  people.set(String(profile.id), { ...existingProfile, ...profile, color: existingProfile?.color || profile.color });
+  seed.people = [...people.values()];
+  seed.requests = [...requests.values()];
+  seed.settings = savedStores[0].settings || seed.settings;
   return seed;
 }
 
 let state = readStore();
+save();
 let currentView = "inicio";
 let calendarDate = new Date();
 let requestFilter = "Todos";
@@ -123,18 +145,36 @@ function render() {
 
 function renderOverview() {
   const person = currentUser();
-  const myRequests = state.requests.filter((request) => request.userId === person.id);
+  const myRequests = state.requests.filter((request) => String(request.userId) === String(person.id));
   const usedDays = myRequests.filter((request) => request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((total, request) => total + request.days, 0);
-  const pending = state.requests.filter((request) => request.status === "Pendente" && (isManager() || request.userId === person.id));
-  const upcoming = state.requests.filter((request) => request.status === "Aprovado" && request.end >= dateOffset(0)).sort((a, b) => a.start.localeCompare(b.start));
+  const scopedRequests = isManager() ? state.requests : myRequests;
+  const pending = scopedRequests.filter((request) => request.status === "Pendente");
+  const upcoming = scopedRequests.filter((request) => request.status === "Aprovado" && request.end >= dateOffset(0)).sort((a, b) => a.start.localeCompare(b.start));
   const daysLeft = Math.max(0, person.balance - usedDays);
   const createButton = `<button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
+  if (!isManager()) {
+    const nextHoliday = upcoming[0];
+    const daysUntilNext = nextHoliday ? Math.max(0, Math.ceil((dateAtNoon(nextHoliday.start) - dateAtNoon(dateOffset(0))) / 86400000)) : null;
+    return `${pageHeading("ESPAÇO PESSOAL", `Olá, ${escapeHtml(person.name.split(" ")[0])}`, "Acompanha o teu saldo e os teus pedidos de férias.", createButton)}
+      <section class="overview-grid">
+        <article class="metric-card"><div class="metric-top">Saldo disponível <span class="metric-icon green">◷</span></div><div class="metric-value"><strong>${daysLeft}</strong><span>dias</span></div><div class="metric-foot">de ${person.balance} dias anuais</div></article>
+        <article class="metric-card"><div class="metric-top">Os meus pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">A aguardar decisão do administrador</div></article>
+        <article class="metric-card"><div class="metric-top">Dias utilizados <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${usedDays}</strong><span>dias</span></div><div class="metric-foot">Neste ano</div></article>
+        <article class="metric-card"><div class="metric-top">Próximas férias <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${daysUntilNext ?? "—"}</strong><span>${daysUntilNext === null ? "sem data" : daysUntilNext === 1 ? "dia" : "dias"}</span></div><div class="metric-foot">${nextHoliday ? `${shortDate.format(dateAtNoon(nextHoliday.start))} – ${shortDate.format(dateAtNoon(nextHoliday.end))}` : "Ainda sem férias aprovadas"}</div></article>
+      </section>
+      <section class="dashboard-columns">
+        <article class="panel"><div class="panel-header"><div><h2 class="panel-title">O meu calendário</h2><p class="panel-note">Os teus pedidos e férias aprovadas</p></div><button class="text-link" data-view="calendario">Abrir calendário ↗</button></div>${renderMiniCalendar()}</article>
+        <article class="panel team-panel"><div class="panel-header"><div><h2 class="panel-title">Próximas férias</h2><p class="panel-note">Os teus períodos aprovados</p></div><button class="text-link" data-view="pedidos">Os meus pedidos ↗</button></div><div class="team-list">${renderUpcomingRows(upcoming.slice(0, 4))}</div></article>
+      </section>
+      <section class="panel activity-panel"><div class="panel-header"><div><h2 class="panel-title">Atividade dos meus pedidos</h2><p class="panel-note">Acompanha as alterações recentes</p></div><button class="text-link" data-view="pedidos">Ver pedidos ↗</button></div><div class="activity-list">${renderActivity()}</div></section>`;
+  }
+  const companyUsedDays = state.requests.filter((request) => request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((total, request) => total + request.days, 0);
   return `${pageHeading("BEM-VINDO DE VOLTA", `Olá, ${escapeHtml(person.name.split(" ")[0])} 👋`, "Aqui está o resumo das férias da tua equipa.", createButton)}
     <section class="overview-grid">
-      <article class="metric-card"><div class="metric-top">Os meus dias disponíveis <span class="metric-icon green">◷</span></div><div class="metric-value"><strong>${daysLeft}</strong><span>dias</span></div><div class="metric-foot">de ${person.balance} dias anuais</div></article>
+      <article class="metric-card"><div class="metric-top">Colaboradores <span class="metric-icon green">♧</span></div><div class="metric-value"><strong>${state.people.length}</strong><span>pessoas</span></div><div class="metric-foot">Registadas na equipa</div></article>
       <article class="metric-card"><div class="metric-top">Pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">${isManager() ? "A aguardar a tua decisão" : "A aguardar aprovação"}</div></article>
       <article class="metric-card"><div class="metric-top">De férias este mês <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${countAwayThisMonth()}</strong><span>pessoas</span></div><div class="metric-foot">Na equipa Norte & Co.</div></article>
-      <article class="metric-card"><div class="metric-top">Dias já utilizados <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${usedDays}</strong><span>dias</span></div><div class="metric-foot"><b>${Math.max(0, person.balance - usedDays)} dias</b> ainda disponíveis</div></article>
+      <article class="metric-card"><div class="metric-top">Dias aprovados este ano <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${companyUsedDays}</strong><span>dias</span></div><div class="metric-foot">Total da equipa</div></article>
     </section>
     <section class="dashboard-columns">
       <article class="panel"><div class="panel-header"><div><h2 class="panel-title">Calendário da equipa</h2><p class="panel-note">Férias planeadas para os próximos dias</p></div><button class="text-link" data-view="calendario">Ver calendário ↗</button></div>${renderMiniCalendar()}</article>
@@ -145,7 +185,9 @@ function renderOverview() {
 
 function countAwayThisMonth() {
   const now = new Date();
-  return new Set(state.requests.filter((request) => request.status === "Aprovado" && new Date(request.start).getMonth() === now.getMonth() && new Date(request.start).getFullYear() === now.getFullYear()).map((request) => request.userId)).size;
+  const monthStartDate = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
+  const monthEndDate = localISO(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  return new Set(state.requests.filter((request) => request.status === "Aprovado" && request.start <= monthEndDate && request.end >= monthStartDate).map((request) => request.userId)).size;
 }
 
 function renderUpcomingRows(requests) {
@@ -158,7 +200,8 @@ function renderUpcomingRows(requests) {
 }
 
 function renderActivity() {
-  const latest = [...state.requests].sort((a, b) => b.created.localeCompare(a.created)).slice(0, 4);
+  const visible = isManager() ? state.requests : state.requests.filter((request) => String(request.userId) === String(currentUser().id));
+  const latest = [...visible].sort((a, b) => b.created.localeCompare(a.created)).slice(0, 4);
   if (!latest.length) return `<div class="empty-state">Ainda não existem pedidos para mostrar.</div>`;
   return latest.map((request) => {
     const person = personById(request.userId);
@@ -189,7 +232,7 @@ function renderMiniCalendar() {
     const current = new Date(start);
     current.setDate(start.getDate() + index);
     const iso = localISO(current);
-    const dayRequests = state.requests.filter((request) => ["Pendente", "Aprovado"].includes(request.status) && iso >= request.start && iso <= request.end);
+    const dayRequests = state.requests.filter((request) => ["Pendente", "Aprovado"].includes(request.status) && iso >= request.start && iso <= request.end && (isManager() || String(request.userId) === String(currentUser().id)));
     const dots = dayRequests.length ? `<span class="day-dots">${dayRequests.slice(0, 3).map(() => "<i></i>").join("")}</span>` : '<span class="day-dots"></span>';
     days += `<div class="calendar-day ${current.getMonth() !== month ? "outside" : ""} ${iso === dateOffset(0) ? "today" : ""}"><span>${current.getDate()}</span>${dots}</div>`;
   }
@@ -231,11 +274,11 @@ function monthCells(date, full = false) {
     const current = new Date(start);
     current.setDate(start.getDate() + index);
     const iso = localISO(current);
-    const events = state.requests.filter((request) => ["Pendente", "Aprovado"].includes(request.status) && iso >= request.start && iso <= request.end);
+    const events = state.requests.filter((request) => ["Pendente", "Aprovado"].includes(request.status) && iso >= request.start && iso <= request.end && (isManager() || String(request.userId) === String(currentUser().id)));
     const chips = full ? events.slice(0, 2).map((request) => {
       const person = personById(request.userId);
       return person ? `<span class="event-chip ${request.status === "Pendente" ? "pending" : "approved"}">${escapeHtml(person.name.split(" ")[0])} · ${request.status === "Pendente" ? "Pendente" : "Férias"}</span>` : "";
-    }).join("") : events.length ? `<span class="day-dots">${events.slice(0, 3).map(() => "<i></i>").join("")}</span>` : `<span class="day-dots"></span>`;
+    }).join("") + (events.length > 2 ? `<span class="event-overflow">+${events.length - 2} mais</span>` : "") : events.length ? `<span class="day-dots">${events.slice(0, 3).map((request) => `<i class="${request.status === "Pendente" ? "pending" : "approved"}"></i>`).join("")}</span>` : `<span class="day-dots"></span>`;
     markup += `<div class="calendar-day ${current.getMonth() !== month ? "outside" : ""} ${iso === dateOffset(0) ? "today" : ""}"><span>${current.getDate()}</span>${chips}</div>`;
   }
   return markup;
@@ -243,20 +286,23 @@ function monthCells(date, full = false) {
 
 function renderCalendarPage() {
   const title = monthFormat.format(calendarDate).replace(/^./, (letter) => letter.toUpperCase());
-  return `${pageHeading("PLANEAMENTO", "Calendário da equipa", "Visualiza as férias aprovadas e os pedidos pendentes.", `<button class="secondary-button" data-action="today"><span class="button-icon">◷</span>Hoje</button>`)}<div class="calendar-page-toolbar"><span class="calendar-month">${title}</span><div class="calendar-controls"><button data-action="calendar-prev" aria-label="Mês anterior">‹</button><button data-action="calendar-next" aria-label="Mês seguinte">›</button></div></div><section class="full-calendar"><div class="calendar-grid">${monthCells(calendarDate, true)}</div></section>`;
+  const heading = isManager() ? ["PLANEAMENTO", "Calendário da equipa", "Visualiza as férias aprovadas e os pedidos pendentes da equipa."] : ["ESPAÇO PESSOAL", "O meu calendário", "Consulta apenas os teus pedidos e períodos de férias."];
+  return `${pageHeading(heading[0], heading[1], heading[2], `<button class="secondary-button" data-action="today"><span class="button-icon">◷</span>Hoje</button>`)}<div class="calendar-page-toolbar"><span class="calendar-month">${title}</span><div class="calendar-controls"><button data-action="calendar-prev" aria-label="Mês anterior">‹</button><button data-action="calendar-next" aria-label="Mês seguinte">›</button></div></div><section class="full-calendar"><div class="calendar-grid">${monthCells(calendarDate, true)}</div></section><div class="calendar-legend"><span><i class="legend-approved"></i>Férias aprovadas</span><span><i class="legend-pending"></i>Pedido pendente</span></div>`;
 }
 
 function renderTeamPage() {
-  const people = state.people.filter((person) => !searchTerm || person.name.toLowerCase().includes(searchTerm.toLowerCase()) || person.department.toLowerCase().includes(searchTerm.toLowerCase()));
+  const visiblePeople = isManager() ? state.people : state.people.filter((person) => String(person.id) === String(currentUser().id));
+  const people = visiblePeople.filter((person) => !searchTerm || person.name.toLowerCase().includes(searchTerm.toLowerCase()) || person.department.toLowerCase().includes(searchTerm.toLowerCase()));
   const cards = people.map((person) => {
     const used = state.requests.filter((request) => request.userId === person.id && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
     return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, person.balance - used)} de ${person.balance} dias</strong></div></article>`;
   }).join("");
   const button = isManager() ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
-  return `${pageHeading("PESSOAS", "A tua equipa", `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.`, button)}<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div><section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
+  return `${pageHeading("PESSOAS", isManager() ? "A tua equipa" : "O meu perfil", isManager() ? `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.` : "Consulta o teu perfil e saldo de férias.", button)}${isManager() ? `<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div>` : ""}<section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
 }
 
 function renderAdminPage() {
+  if (!isManager()) return renderOverview();
   const pendingCount = state.requests.filter((request) => request.status === "Pendente").length;
   return `${pageHeading("CONFIGURAÇÃO", "Administração", "Define as regras de férias e acompanha a atividade da empresa.")}<div class="settings-grid"><div><article class="panel settings-section"><h2 class="panel-title">Política de férias</h2><p class="panel-note">Regras aplicadas aos colaboradores da empresa.</p><div class="setting-line"><div><strong>Dias anuais por defeito</strong><small>Saldo atribuído a novos colaboradores</small></div><input class="setting-input" id="annual-days" type="number" min="1" max="60" value="${state.settings.annualDays}" /></div><div class="setting-line"><div><strong>Limite de ausências simultâneas</strong><small>Número máximo de pessoas de férias ao mesmo tempo</small></div><input class="setting-input" id="conflict-limit" type="number" min="1" max="20" value="${state.settings.conflictLimit}" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Alertas para pedidos e decisões</small></div><input class="switch" id="notifications-setting" type="checkbox" ${state.settings.notifications ? "checked" : ""} /></div><button class="primary-button" data-action="save-settings">Guardar alterações</button></article><article class="panel settings-section"><h2 class="panel-title">Dados locais</h2><p class="panel-note">Este protótipo guarda os dados neste navegador.</p><div class="setting-line"><div><strong>Repor dados de demonstração</strong><small>Apaga as alterações e restaura os dados iniciais.</small></div><button class="danger-button" data-action="reset-data">Repor dados</button></div></article></div><aside><article class="panel settings-section"><h2 class="panel-title">Resumo da empresa</h2><div class="balance-stat"><strong>${state.people.length}</strong><span>colaboradores registados</span></div><div class="setting-line"><div><strong>Pedidos pendentes</strong><small>A aguardar decisão do responsável</small></div><span class="setting-value">${pendingCount}</span></div><div class="setting-line"><div><strong>Departamentos</strong><small>Equipas ativas</small></div><span class="setting-value">${new Set(state.people.map((person) => person.department)).size}</span></div></article></aside></div>`;
 }
@@ -343,6 +389,8 @@ function showToast(message) {
 function changeRequest(id, status) {
   const request = state.requests.find((item) => item.id === id);
   if (!request) return;
+  if (["Aprovado", "Rejeitado"].includes(status) && (!isManager() || String(request.userId) === String(currentUser().id))) return;
+  if (status === "Cancelado" && String(request.userId) !== String(currentUser().id)) return;
   if (status === "Rejeitado" && !window.confirm("Queres rejeitar este pedido?")) return;
   request.status = status;
   save(); render();
@@ -364,6 +412,7 @@ function toggleNotifications() {
 document.addEventListener("click", (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) {
+    if (nav.dataset.view === "administracao" && !isManager()) return;
     currentView = nav.dataset.view;
     searchTerm = "";
     document.querySelector("#sidebar").classList.remove("open");
@@ -373,6 +422,7 @@ document.addEventListener("click", (event) => {
   const action = event.target.closest("[data-action]");
   if (action) {
     const { action: name, id } = action.dataset;
+    if (["new-employee", "save-settings", "reset-data"].includes(name) && !isManager()) return;
     if (name === "new-request") newRequestModal();
     else if (name === "new-employee") newEmployeeModal();
     else if (name === "close-modal") closeModal();
