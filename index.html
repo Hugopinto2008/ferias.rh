@@ -51,6 +51,11 @@
             <button class="primary-button auth-submit" id="login-submit" type="submit">Entrar</button>
           </form>
 
+          <p class="auth-footnote demo-credentials" id="demo-credentials">
+            Contas de teste:<br />
+            Admin: <strong>admin@folga.local</strong> / <strong>admin123</strong><br />
+            Teste: <strong>teste@folga.local</strong> / <strong>teste123</strong>
+          </p>
           <p class="auth-footnote"><button type="button" class="quiet-button" id="back-choice">Voltar à escolha</button></p>
         </section>
 
@@ -138,13 +143,50 @@
         && !supabaseConfig.anonKey.includes("YOUR_SUPABASE")
         ? window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey)
         : null;
+      const DEMO_USERS = Object.freeze({
+        "admin@folga.local": {
+          id: "demo-admin",
+          email: "admin@folga.local",
+          name: "Administrador Folga",
+          role: "Administrador",
+          department: "Direção",
+          annualLeaveDays: 22,
+          password: "admin123",
+        },
+        "teste@folga.local": {
+          id: "demo-employee",
+          email: "teste@folga.local",
+          name: "Colaborador Teste",
+          role: "Colaborador",
+          department: "Operações",
+          annualLeaveDays: 22,
+          password: "teste123",
+        },
+      });
 
       function showAuthError(message) {
         authError.textContent = message;
         authError.hidden = false;
       }
 
+      function getDemoProfile(user) {
+        if (!user || !String(user.id || "").startsWith("demo-")) return null;
+        const demoUser = DEMO_USERS[String(user.email || "").toLowerCase()];
+        if (!demoUser) return null;
+        return {
+          id: demoUser.id,
+          name: demoUser.name,
+          email: demoUser.email,
+          role: demoUser.role,
+          department: demoUser.department || "Sem departamento",
+          annualLeaveDays: demoUser.annualLeaveDays,
+        };
+      }
+
       async function getProfile(user) {
+        const demoProfile = getDemoProfile(user);
+        if (demoProfile) return demoProfile;
+        if (!supabaseClient) throw new Error("Falta configurar o projeto Supabase. Segue os passos do README.");
         const { data, error } = await supabaseClient
           .from("profiles")
           .select("id, full_name, role, department, annual_leave_days")
@@ -164,6 +206,11 @@
       async function enterApp(user) {
         const userProfile = await getProfile(user);
         window.APP_USER = userProfile;
+        if (String(user.id).startsWith("demo-")) {
+          localStorage.setItem("folga-demo-session", JSON.stringify({ user: { id: user.id, email: user.email }, profile: userProfile.role }));
+        } else {
+          localStorage.removeItem("folga-demo-session");
+        }
         authGate.hidden = true;
         appShell.hidden = false;
         if (!document.getElementById("app-script")) {
@@ -200,22 +247,37 @@
       loginForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         authError.hidden = true;
-        if (!supabaseClient) {
-          showAuthError("Falta configurar o projeto Supabase. Segue os passos do README.");
-          return;
-        }
 
         loginSubmit.disabled = true;
         try {
           const formData = new FormData(loginForm);
+          const email = String(formData.get("email") || "").trim().toLowerCase();
+          const password = String(formData.get("password") || "").trim();
+          const selectedProfile = profileField.value;
+          const demoUser = Object.values(DEMO_USERS).find((item) => item.email.toLowerCase() === email) || DEMO_USERS[email];
+
+          if (demoUser && demoUser.password === password) {
+            const expectedRole = selectedProfile === "admin" ? "Administrador" : null;
+            const isEmployee = ["Colaborador", "Responsável"].includes(demoUser.role);
+            if ((expectedRole && demoUser.role !== expectedRole) || (!expectedRole && !isEmployee)) {
+              throw new Error("Esta conta não tem acesso à área selecionada.");
+            }
+            await enterApp({ id: demoUser.id, email: demoUser.email, role: demoUser.role });
+            return;
+          }
+
+          if (!supabaseClient) {
+            throw new Error("Conta ou palavra-passe inválidas. Usa as contas de teste ou configura o Supabase.");
+          }
+
           const { data, error } = await supabaseClient.auth.signInWithPassword({
-            email: String(formData.get("email")).trim(),
-            password: String(formData.get("password")),
+            email,
+            password,
           });
           if (error) throw new Error("E-mail ou palavra-passe incorretos.");
 
           const userProfile = await getProfile(data.user);
-          const expectedRole = profileField.value === "admin" ? "Administrador" : null;
+          const expectedRole = selectedProfile === "admin" ? "Administrador" : null;
           const isEmployee = ["Colaborador", "Responsável"].includes(userProfile.role);
           if ((expectedRole && userProfile.role !== expectedRole) || (!expectedRole && !isEmployee)) {
             await supabaseClient.auth.signOut();
@@ -235,13 +297,26 @@
       });
 
       document.getElementById("logout-button").addEventListener("click", async () => {
-        await supabaseClient.auth.signOut();
+        if (supabaseClient) {
+          await supabaseClient.auth.signOut();
+        }
+        localStorage.removeItem("folga-demo-session");
         window.location.reload();
       });
 
       async function restoreSession() {
+        const savedDemoSession = JSON.parse(localStorage.getItem("folga-demo-session") || "null");
+        if (savedDemoSession && savedDemoSession.user) {
+          try {
+            await enterApp(savedDemoSession.user);
+            return;
+          } catch (error) {
+            localStorage.removeItem("folga-demo-session");
+          }
+        }
+
         if (!supabaseClient) {
-          setupWarning.textContent = "Configura o Supabase para ativar o login. Consulta o README.";
+          setupWarning.textContent = "Como não há projeto Supabase ativo, usa as contas de teste em baixo.";
           setupWarning.hidden = false;
           return;
         }
