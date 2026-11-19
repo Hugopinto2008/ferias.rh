@@ -72,6 +72,8 @@ let currentView = "inicio";
 let calendarDate = new Date();
 let requestFilter = "Todos";
 let searchTerm = "";
+let calendarDepartment = "Todos";
+let windowAudit = [];
 let toastTimeout;
 
 const page = document.querySelector("#page-content");
@@ -91,10 +93,11 @@ function save() {
 async function syncBackendData() {
   if (!backend || isDemoSession) return;
   try {
-    const [{ data: profiles }, { data: requests }, { data: notifications }, { data: company }] = await Promise.all([
+    const [{ data: profiles }, { data: requests }, { data: notifications }, { data: audit }, { data: company }] = await Promise.all([
       backend.from("profiles").select("id, full_name, role, department, job_title, hire_date, annual_leave_days"),
       backend.from("leave_requests").select("id, user_id, start_date, end_date, days_count, absence_type, note, status, decision_note, created_at"),
       backend.from("notifications").select("id, title, message, read_at, created_at").order("created_at", { ascending: false }).limit(20),
+      backend.from("leave_audit").select("request_id, actor_id, action, note, created_at").order("created_at", { ascending: false }).limit(100),
       backend.from("company_settings").select("company_name, plan_name, annual_days, conflict_limit, notifications_enabled").eq("id", 1).maybeSingle(),
     ]);
     if (profiles?.length) {
@@ -125,6 +128,7 @@ async function syncBackendData() {
       };
     }
     window.FOLGA_NOTIFICATIONS = notifications || [];
+    windowAudit = audit || [];
   } catch (error) { console.warn("Não foi possível sincronizar dados do Supabase.", error); }
   render();
 }
@@ -280,6 +284,7 @@ function render() {
   const activeNav = document.querySelector(`.nav-item[data-view="${currentView}"]`);
   document.querySelector("#breadcrumb-current").textContent = activeNav?.textContent.trim().replace(/\s+\d+$/, "") || "Visão geral";
   if (currentView === "calendario") page.innerHTML = renderCalendarPage();
+  else if (currentView === "relatorios") page.innerHTML = renderReportsPage();
   else if (currentView === "pedidos") page.innerHTML = renderRequestsPage();
   else if (currentView === "equipa") page.innerHTML = renderTeamPage();
   else if (currentView === "administracao") page.innerHTML = renderAdminPage();
@@ -402,6 +407,10 @@ function requestRows(requests) {
   }).join("");
 }
 
+function printReport() {
+  window.print();
+}
+
 function exportVisibleRequests() {
   const requests = visibleRequests();
   const csvRows = [["Colaborador", "Tipo", "Início", "Fim", "Dias", "Estado"], ...requests.map((request) => [
@@ -418,9 +427,20 @@ function exportVisibleRequests() {
 }
 
 function renderRequestsPage() {
-  const headingActions = `<button class="secondary-button" data-action="export-requests">Exportar CSV</button><button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
+  const headingActions = `<button class="secondary-button" data-action="export-requests">Exportar CSV</button><button class="secondary-button" data-action="print-report">Imprimir relatório</button><button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
   const heading = pageHeading("GESTÃO DE AUSÊNCIAS", "Pedidos de férias", isManager() ? "Consulta e gere os pedidos de toda a equipa." : "Consulta o estado dos teus pedidos de férias.", headingActions);
   return `${heading}<section class="view-panel"><div class="toolbar-row"><div class="toolbar-left"><label class="search-field"><span>⌕</span><input id="request-search" type="search" placeholder="Pesquisar colaborador" value="${escapeHtml(searchTerm)}" /></label></div><div class="toolbar-right"><select class="filter-select" id="status-filter" aria-label="Filtrar estado">${["Todos", "Pendente", "Aprovado", "Rejeitado", "Cancelado"].map((status) => `<option ${requestFilter === status ? "selected" : ""}>${status}</option>`).join("")}</select></div></div><article class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Colaborador</th><th>Tipo</th><th>Período</th><th>Duração</th><th>Estado</th><th>Submetido</th><th>Ações</th></tr></thead><tbody>${requestRows(visibleRequests())}</tbody></table></div></article></section>`;
+}
+
+function filteredCalendarRequests() {
+  return state.requests.filter((request) => {
+    if (!isManager() && String(request.userId) !== String(currentUser().id)) return false;
+    if (isManager() && calendarDepartment !== "Todos") {
+      const person = personById(request.userId);
+      if (person?.department !== calendarDepartment) return false;
+    }
+    return ["Pendente", "Aprovado"].includes(request.status);
+  });
 }
 
 function monthCells(date, full = false) {
@@ -434,7 +454,7 @@ function monthCells(date, full = false) {
     const current = new Date(start);
     current.setDate(start.getDate() + index);
     const iso = localISO(current);
-    const events = state.requests.filter((request) => ["Pendente", "Aprovado"].includes(request.status) && iso >= request.start && iso <= request.end && (isManager() || String(request.userId) === String(currentUser().id)));
+    const events = filteredCalendarRequests().filter((request) => iso >= request.start && iso <= request.end);
     const chips = full ? events.slice(0, 2).map((request) => {
       const person = personById(request.userId);
       return person ? `<span class="event-chip ${request.status === "Pendente" ? "pending" : "approved"}">${escapeHtml(person.name.split(" ")[0])} · ${request.status === "Pendente" ? "Pendente" : "Férias"}</span>` : "";
@@ -447,7 +467,34 @@ function monthCells(date, full = false) {
 function renderCalendarPage() {
   const title = monthFormat.format(calendarDate).replace(/^./, (letter) => letter.toUpperCase());
   const heading = isManager() ? ["PLANEAMENTO", "Calendário da equipa", "Visualiza as férias aprovadas e os pedidos pendentes da equipa."] : ["ESPAÇO PESSOAL", "O meu calendário", "Consulta apenas os teus pedidos e períodos de férias."];
-  return `${pageHeading(heading[0], heading[1], heading[2], `<button class="secondary-button" data-action="today"><span class="button-icon">◷</span>Hoje</button>`)}<div class="calendar-page-toolbar"><span class="calendar-month">${title}</span><div class="calendar-controls"><button data-action="calendar-prev" aria-label="Mês anterior">‹</button><button data-action="calendar-next" aria-label="Mês seguinte">›</button></div></div><section class="full-calendar"><div class="calendar-grid">${monthCells(calendarDate, true)}</div></section><div class="calendar-legend"><span><i class="legend-approved"></i>Férias aprovadas</span><span><i class="legend-pending"></i>Pedido pendente</span></div>`;
+  const departmentOptions = isManager() ? [`<select class="filter-select" id="calendar-department"><option>Todos</option>${[...new Set(state.people.map((person) => person.department))].map((department) => `<option ${calendarDepartment === department ? "selected" : ""}>${escapeHtml(department)}</option>`).join("")}</select>`] : [""];
+  return `${pageHeading(heading[0], heading[1], heading[2], `<button class="secondary-button" data-action="today"><span class="button-icon">◷</span>Hoje</button>`)}${departmentOptions[0] ? `<div class="calendar-filter">${departmentOptions[0]}</div>` : ""}<div class="calendar-page-toolbar"><span class="calendar-month">${title}</span><div class="calendar-controls"><button data-action="calendar-prev" aria-label="Mês anterior">‹</button><button data-action="calendar-next" aria-label="Mês seguinte">›</button></div></div><section class="full-calendar"><div class="calendar-grid">${monthCells(calendarDate, true)}</div></section><div class="calendar-legend"><span><i class="legend-approved"></i>Férias aprovadas</span><span><i class="legend-pending"></i>Pedido pendente</span></div>`;
+}
+
+function renderReportsPage() {
+  if (!isManager()) return renderOverview();
+  const approved = state.requests.filter((request) => request.status === "Aprovado");
+  const pending = state.requests.filter((request) => request.status === "Pendente");
+  const rejected = state.requests.filter((request) => request.status === "Rejeitado");
+  const totalPeople = state.people.length;
+  const approvedDays = approved.reduce((sum, request) => sum + request.days, 0);
+  const departmentRows = [...new Set(state.people.map((person) => person.department))].map((department) => {
+    const people = state.people.filter((person) => person.department === department);
+    const ids = new Set(people.map((person) => String(person.id)));
+    const days = approved.filter((request) => ids.has(String(request.userId))).reduce((sum, request) => sum + request.days, 0);
+    const percent = totalPeople ? Math.min(100, Math.round(days / Math.max(1, totalPeople * 22) * 100)) : 0;
+    return `<div class="report-bar-row"><div><strong>${escapeHtml(department)}</strong><span>${days} dias aprovados</span></div><div class="report-bar"><span style="width:${percent}%"></span></div></div>`;
+  }).join("");
+  return `${pageHeading("ANÁLISE", "Relatórios", "Indicadores de férias e atividade da equipa.", `<button class="secondary-button" data-action="export-requests">Exportar CSV</button>`)}<section class="overview-grid"><article class="metric-card"><div class="metric-top">Dias aprovados <span class="metric-icon green">↗</span></div><div class="metric-value"><strong>${approvedDays}</strong><span>dias</span></div></article><article class="metric-card"><div class="metric-top">Pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>pedidos</span></div></article><article class="metric-card"><div class="metric-top">Pedidos rejeitados <span class="metric-icon coral">×</span></div><div class="metric-value"><strong>${rejected.length}</strong><span>pedidos</span></div></article><article class="metric-card"><div class="metric-top">Colaboradores <span class="metric-icon yellow">♧</span></div><div class="metric-value"><strong>${totalPeople}</strong><span>ativos</span></div></article></section><section class="dashboard-columns"><article class="panel report-panel"><div class="panel-header"><div><h2 class="panel-title">Dias aprovados por departamento</h2><p class="panel-note">Distribuição anual das férias</p></div></div><div class="report-bars">${departmentRows || `<div class="empty-state">Sem dados suficientes.</div>`}</div></article><article class="panel report-panel"><div class="panel-header"><div><h2 class="panel-title">Estado dos pedidos</h2><p class="panel-note">Visão geral</p></div></div><div class="report-status"><div><span class="report-status-dot approved"></span><strong>Aprovados</strong><b>${approved.length}</b></div><div><span class="report-status-dot pending"></span><strong>Pendentes</strong><b>${pending.length}</b></div><div><span class="report-status-dot rejected"></span><strong>Rejeitados</strong><b>${rejected.length}</b></div></div></article></section><section class="panel audit-panel"><div class="panel-header"><div><h2 class="panel-title">Histórico de auditoria</h2><p class="panel-note">Últimas alterações nos pedidos</p></div></div><div class="activity-list">${renderAuditRows()}</div></section>`;
+}
+
+function renderAuditRows() {
+  if (!windowAudit.length) return `<div class="empty-state">Ainda não existe histórico registado.</div>`;
+  return windowAudit.slice(0, 8).map((entry) => {
+    const actor = personById(entry.actor_id);
+    const request = state.requests.find((item) => String(item.id) === String(entry.request_id));
+    return `<div class="activity-row"><span class="activity-marker">${entry.action === "Aprovado" ? "✓" : entry.action === "Rejeitado" ? "×" : "·"}</span><div class="activity-copy"><strong>${escapeHtml(actor?.name || "Utilizador")}</strong> marcou como ${escapeHtml(entry.action.toLowerCase())}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}<br><span>${request ? `${shortDate.format(dateAtNoon(request.start))} – ${shortDate.format(dateAtNoon(request.end))}` : "Pedido"}</span></div><span class="activity-time">${relativeDate(entry.created_at.slice(0, 10))}</span></div>`;
+  }).join("");
 }
 
 function renderTeamPage() {
@@ -456,7 +503,8 @@ function renderTeamPage() {
   const cards = people.map((person) => {
     const used = state.requests.filter((request) => request.userId === person.id && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
     const entitlement = annualLeaveEntitlement(person);
-    return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, entitlement - used)} de ${entitlement} dias</strong></div></article>`;
+    const editButton = isManager() ? `<button class="text-link" data-action="edit-employee" data-id="${person.id}">Editar perfil ↗</button>` : "";
+    return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, entitlement - used)} de ${entitlement} dias</strong></div>${editButton ? `<div class="employee-actions">${editButton}</div>` : ""}</article>`;
   }).join("");
   const button = isManager() ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
   return `${pageHeading("PESSOAS", isManager() ? "A tua equipa" : "O meu perfil", isManager() ? `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.` : "Consulta o teu perfil e saldo de férias.", button)}${isManager() ? `<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div>` : ""}<section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
@@ -548,6 +596,46 @@ function newEmployeeModal() {
   modalLayer.querySelector(".modal-footer .primary-button").textContent = "Adicionar colaborador";
 }
 
+function openProfileModal() {
+  const person = currentUser();
+  openModal("O meu perfil", "Altere a palavra-passe e as preferências da conta.", `<div class="form-field"><label>Nome</label><input class="form-control" value="${escapeHtml(person.name)}" readonly /></div><div class="form-field"><label>E-mail</label><input class="form-control" value="${escapeHtml(window.APP_USER.email || "")}" readonly /></div><div class="form-field"><label>Nova palavra-passe</label><input class="form-control" name="password" type="password" minlength="6" autocomplete="new-password" placeholder="Deixe vazio para não alterar" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Mostrar novos pedidos e decisões</small></div><input class="switch" name="inAppNotifications" type="checkbox" checked /></div><div class="setting-line"><div><strong>Notificações por e-mail</strong><small>Receber decisões por e-mail</small></div><input class="switch" name="emailNotifications" type="checkbox" checked /></div>`, async (form) => {
+    const password = String(form.get("password") || "");
+    if (password && password.length < 6) { showToast("A palavra-passe deve ter pelo menos 6 caracteres."); return; }
+    if (password && backend && !isDemoSession) {
+      const { error } = await backend.auth.updateUser({ password });
+      if (error) { showToast("Não foi possível alterar a palavra-passe."); return; }
+    }
+    if (backend && !isDemoSession) {
+      await backend.from("profiles").update({ email_notifications: form.get("emailNotifications") === "on", in_app_notifications: form.get("inAppNotifications") === "on" }).eq("id", person.id);
+    }
+    closeModal(); showToast(password ? "Perfil e palavra-passe atualizados." : "Preferências atualizadas.");
+  });
+  modalLayer.querySelector(".modal-footer .primary-button").textContent = "Guardar perfil";
+}
+
+function editEmployeeModal(id) {
+  const person = personById(id);
+  if (!person) return;
+  openModal("Editar colaborador", "Atualize os dados do perfil e o estado da conta.", `<div class="form-field"><label>Nome completo</label><input class="form-control" name="name" value="${escapeHtml(person.name)}" required /></div><div class="form-row"><div class="form-field"><label>Perfil</label><select class="form-control" name="role"><option ${person.role === "Colaborador" ? "selected" : ""}>Colaborador</option><option ${person.role === "Responsável" ? "selected" : ""}>Responsável</option><option ${person.role === "Administrador" ? "selected" : ""}>Administrador</option></select></div><div class="form-field"><label>Departamento</label><input class="form-control" name="department" value="${escapeHtml(person.department)}" required /></div></div><div class="form-row"><div class="form-field"><label>Função</label><input class="form-control" name="title" value="${escapeHtml(person.title || "Colaborador")}" /></div><div class="form-field"><label>Dias anuais</label><input class="form-control" name="balance" type="number" min="22" max="60" value="${person.balance || 22}" required /></div></div><div class="form-field"><label>Data de admissão</label><input class="form-control" name="hireDate" type="date" value="${person.hireDate || dateOffset(-365)}" required /></div>`, async (form) => {
+    const name = String(form.get("name")).trim();
+    const department = String(form.get("department")).trim();
+    if (!name || !department) { showToast("Preencha o nome e o departamento."); return; }
+    person.name = name;
+    person.role = String(form.get("role"));
+    person.department = department;
+    person.title = String(form.get("title")).trim() || "Colaborador";
+    person.balance = Math.max(22, Number(form.get("balance")) || 22);
+    person.hireDate = String(form.get("hireDate"));
+    person.initials = initials(name);
+    save(); closeModal(); render(); showToast("Perfil atualizado.");
+    if (backend && !isDemoSession) {
+      const { error } = await backend.rpc("update_employee_profile", { employee_id: id, employee_name: name, employee_role: person.role, employee_department: department, employee_title: person.title, employee_hire_date: person.hireDate, employee_leave_days: person.balance });
+      if (error) showToast("O perfil ficou local. Verifique as permissões do Supabase.");
+    }
+  });
+  modalLayer.querySelector(".modal-footer .primary-button").textContent = "Guardar alterações";
+}
+
 function openHelpModal() {
   const employeeHelp = `<div class="help-list"><details open><summary>Como submeto um pedido de férias?</summary><p>Escolha “Novo pedido”, selecione as datas e envie para aprovação do responsável.</p></details><details><summary>Como acompanho o meu pedido?</summary><p>Abra “Pedidos”. Os pedidos pendentes aguardam decisão, os aprovados foram aceites e os rejeitados não avançam.</p></details><details><summary>Posso cancelar um pedido?</summary><p>Enquanto estiver pendente, pode cancelá-lo na página “Pedidos”. Depois de aprovado ou rejeitado, apenas o administrador pode alterar o estado.</p></details><details><summary>Como consulto o meu calendário?</summary><p>O calendário mostra apenas os seus pedidos pendentes e férias aprovadas. Não são apresentados dados de outros funcionários.</p></details><details><summary>Como são calculados os meus dias disponíveis?</summary><p>Em Portugal continental, o mínimo anual é de 22 dias úteis. Fins de semana e feriados nacionais não são descontados. Quem foi admitido durante o ano pode ter direito proporcional.</p></details></div>`;
   const managerHelp = `<div class="help-list"><details open><summary>Como aprovo ou rejeito pedidos?</summary><p>Abra “Pedidos”, consulte os pedidos pendentes da equipa e escolha “Aprovar” ou “Rejeitar”.</p></details><details><summary>Como funciona o calendário da equipa?</summary><p>O calendário apresenta pedidos pendentes e férias aprovadas de todos os colaboradores, com cores e legenda distintas.</p></details><details><summary>Como adiciono um funcionário?</summary><p>Aceda a “Equipa”, escolha “Adicionar” e indique nome, perfil, departamento, data de admissão e dias anuais.</p></details><details><summary>Como altero as regras da empresa?</summary><p>Entre em “Administração” para definir dias anuais por defeito, limite de ausências simultâneas e notificações.</p></details><details><summary>Como são calculadas as férias?</summary><p>O sistema usa 22 dias úteis como mínimo em Portugal continental, excluindo fins de semana e feriados. No ano de admissão pode aplicar o direito proporcional.</p></details></div>`;
@@ -622,8 +710,11 @@ document.addEventListener("click", (event) => {
     if (name === "open-workspace") toggleWorkspaceMenu();
     else if (name === "workspace-admin") { currentView = "administracao"; render(); }
     else if (name === "export-requests") exportVisibleRequests();
+    else if (name === "print-report") printReport();
     else if (name === "new-request") newRequestModal();
     else if (name === "new-employee") newEmployeeModal();
+    else if (name === "edit-employee") editEmployeeModal(id);
+    else if (name === "open-profile") openProfileModal();
     else if (name === "close-modal") closeModal();
     else if (name === "approve") changeRequest(id, "Aprovado");
     else if (name === "reject") changeRequest(id, "Rejeitado");
@@ -671,6 +762,7 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("change", (event) => {
   if (event.target.id === "status-filter") { requestFilter = event.target.value; render(); }
+  if (event.target.id === "calendar-department") { calendarDepartment = event.target.value; render(); }
 });
 
 if (backend && !isDemoSession) {

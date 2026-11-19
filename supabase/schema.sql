@@ -8,11 +8,26 @@ create table if not exists public.profiles (
   hire_date date not null default current_date,
   annual_leave_days smallint not null default 22
     check (annual_leave_days between 22 and 60),
+  is_active boolean not null default true,
+  email_notifications boolean not null default true,
+  in_app_notifications boolean not null default true,
   created_at timestamptz not null default now()
 );
 
 alter table public.profiles add column if not exists job_title text not null default 'Colaborador';
 alter table public.profiles add column if not exists hire_date date not null default current_date;
+alter table public.profiles add column if not exists is_active boolean not null default true;
+alter table public.profiles add column if not exists email_notifications boolean not null default true;
+alter table public.profiles add column if not exists in_app_notifications boolean not null default true;
+
+create table if not exists public.leave_audit (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references public.leave_requests (id) on delete cascade,
+  actor_id uuid not null references public.profiles (id) on delete cascade,
+  action text not null check (action in ('Submetido', 'Aprovado', 'Rejeitado', 'Cancelado')),
+  note text,
+  created_at timestamptz not null default now()
+);
 
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
@@ -54,15 +69,18 @@ on conflict (id) do nothing;
 alter table public.profiles enable row level security;
 alter table public.leave_requests enable row level security;
 alter table public.notifications enable row level security;
+alter table public.leave_audit enable row level security;
 alter table public.company_settings enable row level security;
 
-revoke all on table public.profiles, public.leave_requests, public.notifications, public.company_settings from anon;
+revoke all on table public.profiles, public.leave_requests, public.leave_audit, public.notifications, public.company_settings from anon;
 grant select on table public.profiles to authenticated;
 grant select on table public.company_settings to authenticated;
 grant select, insert, update, delete on table public.leave_requests to authenticated;
 grant select, update on table public.notifications to authenticated;
 revoke update on table public.profiles from authenticated;
 grant update on table public.company_settings to authenticated;
+grant select on table public.leave_audit to authenticated;
+grant insert on table public.leave_audit to authenticated;
 
 create or replace function public.is_manager()
 returns boolean
@@ -98,6 +116,22 @@ create policy "leave_update_own_cancel_or_manager"
   on public.leave_requests for update to authenticated
   using (public.is_manager() or user_id = (select auth.uid()))
   with check (public.is_manager() or (user_id = (select auth.uid()) and status = 'Cancelado'));
+
+drop policy if exists "leave_audit_select_own_or_manager" on public.leave_audit;
+create policy "leave_audit_select_own_or_manager"
+  on public.leave_audit for select to authenticated
+  using (
+    public.is_manager()
+    or exists (
+      select 1 from public.leave_requests r
+      where r.id = request_id and r.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists "leave_audit_insert" on public.leave_audit;
+create policy "leave_audit_insert"
+  on public.leave_audit for insert to authenticated
+  with check (actor_id = (select auth.uid()));
 
 drop policy if exists "notifications_select_own" on public.notifications;
 create policy "notifications_select_own"
@@ -167,6 +201,41 @@ create trigger on_leave_decision
   after update of status on public.leave_requests
   for each row execute procedure public.notify_leave_decision();
 
+create or replace function public.update_employee_profile(
+  employee_id uuid,
+  employee_name text,
+  employee_role text,
+  employee_department text,
+  employee_title text,
+  employee_hire_date date,
+  employee_leave_days smallint
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_manager() then
+    raise exception 'Sem permissão para alterar colaboradores';
+  end if;
+  if employee_role not in ('Administrador', 'Responsável', 'Colaborador') then
+    raise exception 'Perfil inválido';
+  end if;
+  if employee_leave_days < 22 or employee_leave_days > 60 then
+    raise exception 'Saldo inválido';
+  end;
+  update public.profiles
+  set full_name = employee_name,
+      role = employee_role,
+      department = employee_department,
+      job_title = employee_title,
+      hire_date = employee_hire_date,
+      annual_leave_days = employee_leave_days
+  where id = employee_id;
+end;
+$$;
+
 create or replace function public.notify_new_leave_request()
 returns trigger
 language plpgsql
@@ -188,3 +257,30 @@ drop trigger if exists on_leave_request_created on public.leave_requests;
 create trigger on_leave_request_created
   after insert on public.leave_requests
   for each row execute procedure public.notify_new_leave_request();
+
+create or replace function public.record_leave_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.leave_audit (request_id, actor_id, action, note)
+    values (new.id, new.user_id, 'Submetido', new.note);
+  elsif new.status is distinct from old.status then
+    insert into public.leave_audit (request_id, actor_id, action, note)
+    values (new.id, (select auth.uid()), case new.status
+      when 'Aprovado' then 'Aprovado'
+      when 'Rejeitado' then 'Rejeitado'
+      when 'Cancelado' then 'Cancelado'
+      else 'Submetido' end, new.decision_note);
+  end;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_leave_audit_insert on public.leave_requests;
+create trigger on_leave_audit_insert
+  after insert or update of status on public.leave_requests
+  for each row execute procedure public.record_leave_audit();

@@ -82,6 +82,7 @@
 
         <div class="nav-label admin-label">GESTÃO</div>
         <nav class="main-nav" aria-label="Gestão">
+          <button class="nav-item" data-view="relatorios"><span class="nav-icon">▥</span>Relatórios</button>
           <button class="nav-item" data-view="administracao"><span class="nav-icon">⚙</span>Administração</button>
         </nav>
 
@@ -92,8 +93,8 @@
             <span class="help-arrow">↗</span>
           </button>
           <div class="profile-switch">
-            <span class="avatar avatar-green" id="profile-avatar"></span>
-            <span class="profile-copy"><strong id="profile-name"></strong><small id="profile-role"></small></span>
+            <button class="profile-main" type="button" data-action="open-profile" aria-label="Abrir perfil"><span class="avatar avatar-green" id="profile-avatar"></span><span class="profile-copy"><strong id="profile-name"></strong><small id="profile-role"></small></span></button>
+            <span class="profile-copy-space"></span>
             <button class="logout-button" id="logout-button" type="button" title="Terminar sessão" aria-label="Terminar sessão">↪</button>
           </div>
         </div>
