@@ -1,4 +1,4 @@
-# Folga — Sistema de Gestão de Férias
+# Nexora.rh — Sistema de Gestão de Férias
 
 Aplicação estática para GitHub Pages. O login e os perfis usam Supabase; o WampServer não é necessário para executar a versão publicada.
 
