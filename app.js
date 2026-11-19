@@ -66,6 +66,8 @@ function readStore() {
 
 let state = readStore();
 save();
+const backend = window.FOLGA_SUPABASE;
+const isDemoSession = String(window.APP_USER.id).startsWith("demo-");
 let currentView = "inicio";
 let calendarDate = new Date();
 let requestFilter = "Todos";
@@ -84,6 +86,68 @@ const initials = (name) => name.split(/\s+/).slice(0, 2).map((part) => part[0]).
 
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+async function syncBackendData() {
+  if (!backend || isDemoSession) return;
+  try {
+    const [{ data: profiles }, { data: requests }, { data: notifications }, { data: company }] = await Promise.all([
+      backend.from("profiles").select("id, full_name, role, department, job_title, hire_date, annual_leave_days"),
+      backend.from("leave_requests").select("id, user_id, start_date, end_date, days_count, absence_type, note, status, decision_note, created_at"),
+      backend.from("notifications").select("id, title, message, read_at, created_at").order("created_at", { ascending: false }).limit(20),
+      backend.from("company_settings").select("company_name, plan_name, annual_days, conflict_limit, notifications_enabled").eq("id", 1).maybeSingle(),
+    ]);
+    if (profiles?.length) {
+      const palette = ["#e7e4f1", "#dcebd9", "#f5ddd0", "#d8e7eb", "#f3e3aa"];
+      state.people = profiles.map((profile, index) => ({
+        id: String(profile.id), name: profile.full_name, role: profile.role,
+        title: profile.job_title || "Colaborador", department: profile.department,
+        initials: initials(profile.full_name), color: palette[index % palette.length],
+        balance: profile.annual_leave_days, hireDate: profile.hire_date,
+      }));
+      state.currentUserId = String(window.APP_USER.id);
+    }
+    if (requests) {
+      state.requests = requests.map((request) => ({
+        id: request.id, userId: request.user_id, start: request.start_date, end: request.end_date,
+        days: request.days_count, type: request.absence_type, status: request.status,
+        note: request.note, created: request.created_at.slice(0, 10), decisionNote: request.decision_note,
+      }));
+    }
+    if (company) {
+      state.settings = {
+        ...state.settings,
+        annualDays: company.annual_days,
+        conflictLimit: company.conflict_limit,
+        notifications: company.notifications_enabled,
+        companyName: company.company_name,
+        planName: company.plan_name,
+      };
+    }
+    window.FOLGA_NOTIFICATIONS = notifications || [];
+  } catch (error) { console.warn("Não foi possível sincronizar dados do Supabase.", error); }
+  render();
+}
+
+async function syncBackendRequest(request) {
+  if (!backend || isDemoSession) return;
+  const payload = {
+    user_id: request.userId, start_date: request.start, end_date: request.end,
+    days_count: request.days, absence_type: request.type, note: request.note,
+  };
+  const { data, error } = await backend.from("leave_requests").insert(payload).select("id").single();
+  if (error) throw error;
+  request.id = data.id;
+}
+
+async function syncBackendDecision(id, status, decisionNote = "") {
+  if (!backend || isDemoSession) return;
+  const { error } = await backend.from("leave_requests").update({
+    status,
+    decision_note: decisionNote || null,
+    updated_at: new Date().toISOString(),
+  }).eq("id", id);
+  if (error) throw error;
 }
 
 function escapeHtml(value = "") {
@@ -338,8 +402,24 @@ function requestRows(requests) {
   }).join("");
 }
 
+function exportVisibleRequests() {
+  const requests = visibleRequests();
+  const csvRows = [["Colaborador", "Tipo", "Início", "Fim", "Dias", "Estado"], ...requests.map((request) => [
+    personById(request.userId)?.name || "", request.type, request.start, request.end, request.days, request.status,
+  ])];
+  const csv = "\uFEFF" + csvRows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(";")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "pedidos-nexora.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast("Relatório exportado.");
+}
+
 function renderRequestsPage() {
-  const heading = pageHeading("GESTÃO DE AUSÊNCIAS", "Pedidos de férias", isManager() ? "Consulta e gere os pedidos de toda a equipa." : "Consulta o estado dos teus pedidos de férias.", `<button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`);
+  const headingActions = `<button class="secondary-button" data-action="export-requests">Exportar CSV</button><button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
+  const heading = pageHeading("GESTÃO DE AUSÊNCIAS", "Pedidos de férias", isManager() ? "Consulta e gere os pedidos de toda a equipa." : "Consulta o estado dos teus pedidos de férias.", headingActions);
   return `${heading}<section class="view-panel"><div class="toolbar-row"><div class="toolbar-left"><label class="search-field"><span>⌕</span><input id="request-search" type="search" placeholder="Pesquisar colaborador" value="${escapeHtml(searchTerm)}" /></label></div><div class="toolbar-right"><select class="filter-select" id="status-filter" aria-label="Filtrar estado">${["Todos", "Pendente", "Aprovado", "Rejeitado", "Cancelado"].map((status) => `<option ${requestFilter === status ? "selected" : ""}>${status}</option>`).join("")}</select></div></div><article class="panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>Colaborador</th><th>Tipo</th><th>Período</th><th>Duração</th><th>Estado</th><th>Submetido</th><th>Ações</th></tr></thead><tbody>${requestRows(visibleRequests())}</tbody></table></div></article></section>`;
 }
 
@@ -434,8 +514,10 @@ function newRequestModal() {
     const entitlement = annualLeaveEntitlement(employee);
     if (days > Math.max(0, entitlement - used)) { showToast("O pedido excede o saldo de férias disponível."); return; }
     if (overlapping(userId, start, end) + 1 > state.settings.conflictLimit) { showToast("Aviso: há várias pessoas de férias neste período."); }
-    state.requests.unshift({ id: `r-${Date.now()}`, userId, start, end, days, type: form.get("type"), status: "Pendente", note: form.get("note"), created: dateOffset(0) });
+    const request = { id: `r-${Date.now()}`, userId, start, end, days, type: form.get("type"), status: "Pendente", note: form.get("note"), created: dateOffset(0) }; 
+    state.requests.unshift(request);
     save(); closeModal(); render(); showToast("Pedido enviado para aprovação.");
+    syncBackendRequest(request).catch(() => showToast("O pedido foi guardado localmente. Verifique o Supabase."));
   });
   const startInput = modalLayer.querySelector("#request-start");
   const endInput = modalLayer.querySelector("#request-end");
@@ -450,6 +532,11 @@ function newRequestModal() {
 }
 
 function newEmployeeModal() {
+  if (backend && !isDemoSession) {
+    openModal("Adicionar colaborador", "As contas reais são criadas no Supabase Authentication.", `<div class="empty-state"><strong>Criação segura de conta</strong>Crie o utilizador em Authentication → Users e execute o SQL para atribuir o perfil e o departamento.</div><div class="form-field"><label>SQL de exemplo</label><textarea class="form-control" readonly>update public.profiles set role = 'Colaborador', department = 'Operações', job_title = 'Colaborador', hire_date = '2026-11-19', annual_leave_days = 22 where id = (select id from auth.users where email = 'funcionario@exemplo.pt');</textarea></div>`, () => closeModal());
+    modalLayer.querySelector(".modal-footer").innerHTML = `<button type="button" class="secondary-button" data-action="close-modal">Fechar</button>`;
+    return;
+  }
   openModal("Adicionar colaborador", "Cria um novo perfil para a equipa.", `<div class="form-field"><label for="employee-name">Nome completo</label><input class="form-control" id="employee-name" name="name" required maxlength="60" /></div><div class="form-row"><div class="form-field"><label for="employee-role">Perfil</label><select class="form-control" id="employee-role" name="role"><option>Colaborador</option><option>Responsável</option></select></div><div class="form-field"><label for="employee-department">Departamento</label><input class="form-control" id="employee-department" name="department" required maxlength="40" /></div></div><div class="form-row"><div class="form-field"><label for="employee-hire-date">Data de admissão</label><input class="form-control" id="employee-hire-date" name="hireDate" type="date" value="${dateOffset(-365)}" required /></div><div class="form-field"><label for="employee-balance">Dias anuais de férias</label><input class="form-control" id="employee-balance" name="balance" type="number" min="22" max="60" value="${Math.max(22, state.settings.annualDays)}" required /></div></div><div class="form-field"><label for="employee-title">Função</label><input class="form-control" id="employee-title" name="title" maxlength="50" placeholder="Ex.: Designer" /></div>`, (form) => {
     const name = String(form.get("name")).trim();
     const department = String(form.get("department")).trim();
@@ -479,24 +566,40 @@ function showToast(message) {
   toastTimeout = setTimeout(() => { region.innerHTML = ""; }, 3200);
 }
 
-function changeRequest(id, status) {
+async function changeRequest(id, status) {
   const request = state.requests.find((item) => item.id === id);
   if (!request) return;
   if (["Aprovado", "Rejeitado"].includes(status) && (!isManager() || String(request.userId) === String(currentUser().id))) return;
   if (status === "Cancelado" && String(request.userId) !== String(currentUser().id)) return;
   if (status === "Rejeitado" && !window.confirm("Queres rejeitar este pedido?")) return;
+  let decisionNote = "";
+  if (isManager()) {
+    decisionNote = window.prompt(status === "Aprovado" ? "Observação da aprovação (opcional):" : "Motivo da rejeição (opcional):", "") || "";
+  }
   request.status = status;
+  request.decisionNote = decisionNote;
   save(); render();
   showToast(status === "Aprovado" ? "Pedido aprovado." : status === "Rejeitado" ? "Pedido rejeitado." : "Pedido cancelado.");
+  if (backend && !isDemoSession) {
+    syncBackendDecision(id, status, decisionNote).catch(() => showToast("A decisão foi alterada localmente. Verifique o Supabase."));
+  }
+}
+
+async function markNotificationsRead() {
+  if (!backend || isDemoSession) return;
+  await backend.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null);
 }
 
 function toggleNotifications() {
   document.querySelector(".notification-popover")?.remove();
+  const notifications = window.FOLGA_NOTIFICATIONS || [];
   const pending = state.requests.filter((request) => request.status === "Pendente" && (isManager() || request.userId === currentUser().id));
+  const items = notifications.length ? notifications.filter((item) => !item.read_at).map((item) => `<div class="popover-item"><span>●</span><div><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.message)}</small></div></div>`).join("") : pending.slice(0, 4).map((request) => `<div class="popover-item"><span>●</span><div><strong>${escapeHtml(personById(request.userId)?.name || "Colaborador")}</strong> · pedido pendente<br><small>${shortDate.format(dateAtNoon(request.start))} – ${shortDate.format(dateAtNoon(request.end))}</small></div></div>`).join("");
   const popover = document.createElement("div");
   popover.className = "notification-popover";
-  popover.innerHTML = `<div class="popover-title">Notificações</div>${pending.length ? pending.slice(0, 4).map((request) => `<div class="popover-item"><span>●</span><div><strong>${escapeHtml(personById(request.userId)?.name || "Colaborador")}</strong> · pedido pendente<br><small>${shortDate.format(dateAtNoon(request.start))} – ${shortDate.format(dateAtNoon(request.end))}</small></div></div>`).join("") : `<div class="popover-item">Não tens notificações por ler.</div>`}`;
+  popover.innerHTML = `<div class="popover-title">Notificações</div>${items || `<div class="popover-item">Não tens notificações por ler.</div>`}`;
   document.body.append(popover);
+  markNotificationsRead();
   setTimeout(() => document.addEventListener("click", function closePopover(event) {
     if (!popover.contains(event.target) && !event.target.closest("#notification-button")) { popover.remove(); document.removeEventListener("click", closePopover); }
   }), 0);
@@ -518,6 +621,7 @@ document.addEventListener("click", (event) => {
     if (["new-employee", "save-settings", "reset-data"].includes(name) && !isManager()) return;
     if (name === "open-workspace") toggleWorkspaceMenu();
     else if (name === "workspace-admin") { currentView = "administracao"; render(); }
+    else if (name === "export-requests") exportVisibleRequests();
     else if (name === "new-request") newRequestModal();
     else if (name === "new-employee") newEmployeeModal();
     else if (name === "close-modal") closeModal();
@@ -534,6 +638,18 @@ document.addEventListener("click", (event) => {
       state.settings.companyName = String(document.querySelector("#company-name")?.value || "Nexona Area").trim() || "Nexona Area";
       state.settings.planName = String(document.querySelector("#workspace-plan-name")?.value || "Plano Equipa").trim() || "Plano Equipa";
       save(); render(); showToast("Definições guardadas.");
+      if (backend && !isDemoSession) {
+        backend.from("company_settings").update({
+          company_name: state.settings.companyName,
+          plan_name: state.settings.planName,
+          annual_days: state.settings.annualDays,
+          conflict_limit: state.settings.conflictLimit,
+          notifications_enabled: state.settings.notifications,
+          updated_at: new Date().toISOString(),
+        }).eq("id", 1).then(({ error }) => {
+          if (error) showToast("A definição ficou local. Verifique o Supabase.");
+        });
+      }
     } else if (name === "reset-data") {
       if (window.confirm("Esta ação apaga as alterações guardadas neste navegador. Continuar?")) { state = makeSeed(); save(); currentView = "inicio"; render(); showToast("Dados de demonstração repostos."); }
     }
@@ -557,4 +673,8 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "status-filter") { requestFilter = event.target.value; render(); }
 });
 
-render();
+if (backend && !isDemoSession) {
+  syncBackendData();
+} else {
+  render();
+}

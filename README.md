@@ -26,5 +26,6 @@ O endereço será `https://<utilizador>.github.io/<repositorio>/`. A primeira pu
 - A entrada em `index.html` separa Administração e Funcionários; o papel é obtido da tabela `profiles` no Supabase.
 - Para adicionar contas, cria-as em Supabase Authentication → Users. A conta nova começa como `Colaborador`; atribui `Responsável` ou `Administrador` apenas pelo painel seguro do Supabase.
 - A chave pública Supabase pode estar no frontend; a proteção dos dados depende das políticas RLS instaladas pelo SQL.
-- Pedidos, calendário, equipa e definições do painel ainda são guardados no `localStorage` do navegador. Não são sincronizados entre dispositivos nem constituem armazenamento adequado para dados reais de funcionários.
+- Contas reais: pedidos, decisões, notificações e definições da empresa são sincronizados pelo Supabase. O modo de demonstração continua a usar `localStorage` localmente.
+- Contas reais de funcionários devem ser criadas em Authentication → Users. A chave `service_role` nunca deve ser colocada no frontend.
 - Os ficheiros PHP e o esquema MySQL continuam no repositório para a versão local antiga, mas não são executados nem incluídos no deploy do Pages.

@@ -187,7 +187,7 @@
         if (!supabaseClient) throw new Error("Falta configurar o projeto Supabase. Segue os passos do README.");
         const { data, error } = await supabaseClient
           .from("profiles")
-          .select("id, full_name, role, department, annual_leave_days")
+          .select("id, full_name, role, department, job_title, hire_date, annual_leave_days")
           .eq("id", user.id)
           .single();
         if (error || !data) throw new Error("A conta não tem um perfil ativo. Contacta o administrador.");
@@ -197,6 +197,8 @@
           email: user.email,
           role: data.role,
           department: data.department || "Sem departamento",
+          title: data.job_title || "Colaborador",
+          hireDate: data.hire_date,
           annualLeaveDays: data.annual_leave_days,
         };
       }
@@ -204,6 +206,7 @@
       async function enterApp(user) {
         const userProfile = await getProfile(user);
         window.APP_USER = userProfile;
+        window.FOLGA_SUPABASE = supabaseClient;
         if (String(user.id).startsWith("demo-")) {
           localStorage.setItem("folga-demo-session", JSON.stringify({ user: { id: user.id, email: user.email }, profile: userProfile.role }));
         } else {
