@@ -434,6 +434,11 @@ function newEmployeeModal() {
   modalLayer.querySelector(".modal-footer .primary-button").textContent = "Adicionar colaborador";
 }
 
+function openHelpModal() {
+  openModal("Centro de apoio", "Respostas rápidas para usar o Folga.", `<div class="help-list"><details open><summary>Como submeto um pedido de férias?</summary><p>Escolha “Novo pedido”, selecione as datas e envie para aprovação. O saldo desconta apenas dias úteis, excluindo fins de semana e feriados portugueses.</p></details><details><summary>Como aprovo um pedido?</summary><p>Abra “Pedidos”, encontre o pedido pendente e escolha “Aprovar” ou “Rejeitar”. Esta ação está disponível apenas para administradores e responsáveis.</p></details><details><summary>Como funciona o calendário?</summary><p>O calendário mostra pedidos pendentes e férias aprovadas. Como funcionário, apenas são apresentados os seus próprios pedidos.</p></details><details><summary>Como são calculados os dias disponíveis?</summary><p>O mínimo anual é de 22 dias úteis em Portugal continental. Trabalhadores admitidos durante o ano têm direito proporcional a dois dias úteis por mês completo.</p></details></div>`, () => closeModal());
+  modalLayer.querySelector(".modal-footer").innerHTML = `<button type="button" class="primary-button" data-action="close-modal">Fechar</button>`;
+}
+
 function showToast(message) {
   const region = document.querySelector("#toast-region");
   region.innerHTML = `<div class="toast">${escapeHtml(message)}</div>`;
@@ -479,6 +484,7 @@ document.addEventListener("click", (event) => {
     const { action: name, id } = action.dataset;
     if (["new-employee", "save-settings", "reset-data"].includes(name) && !isManager()) return;
     if (name === "new-request") newRequestModal();
+    else if (name === "open-help") openHelpModal();
     else if (name === "new-employee") newEmployeeModal();
     else if (name === "close-modal") closeModal();
     else if (name === "approve") changeRequest(id, "Aprovado");

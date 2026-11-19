@@ -48,7 +48,13 @@ button { color: inherit; cursor: pointer; }
 .nav-count { align-items: center; background: #f6e5d8; border-radius: 9px; color: #a35a38; display: inline-flex; font-size: 10px; height: 19px; justify-content: center; margin-left: auto; min-width: 19px; padding: 0 5px; }
 .admin-label { margin-top: 28px; }
 .sidebar-bottom { margin-top: auto; }
-.help-block { align-items: center; background: #f7f8f3; border: 1px solid #eef0e9; border-radius: 8px; display: flex; gap: 9px; margin-bottom: 14px; padding: 11px 9px; }
+.help-block { align-items: center; background: #f7f8f3; border: 1px solid #eef0e9; border-radius: 8px; display: flex; gap: 9px; margin-bottom: 14px; padding: 11px 9px; text-align: left; width: 100%; }
+.help-block:hover { background: #eef3ea; border-color: #dfe7da; }
+.help-block:focus-visible { outline: 3px solid rgba(32,45,42,.18); outline-offset: 2px; }
+.help-list { display: grid; gap: 8px; }
+.help-list details { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.help-list summary { cursor: pointer; font-size: 11px; font-weight: 700; }
+.help-list p { color: var(--muted); font-size: 10px; line-height: 1.6; margin: 8px 0 0; }
 .help-icon { align-items: center; border: 1px solid #b8c3b5; border-radius: 50%; color: var(--green); display: flex; font-size: 11px; height: 20px; justify-content: center; width: 20px; }
 .help-block div { display: grid; gap: 3px; }
 .help-block strong { font-size: 10px; }
