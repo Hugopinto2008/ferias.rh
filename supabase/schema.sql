@@ -20,15 +20,6 @@ alter table public.profiles add column if not exists is_active boolean not null 
 alter table public.profiles add column if not exists email_notifications boolean not null default true;
 alter table public.profiles add column if not exists in_app_notifications boolean not null default true;
 
-create table if not exists public.leave_audit (
-  id uuid primary key default gen_random_uuid(),
-  request_id uuid not null references public.leave_requests (id) on delete cascade,
-  actor_id uuid not null references public.profiles (id) on delete cascade,
-  action text not null check (action in ('Submetido', 'Aprovado', 'Rejeitado', 'Cancelado')),
-  note text,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
@@ -42,6 +33,15 @@ create table if not exists public.leave_requests (
   decision_note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists public.leave_audit (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references public.leave_requests (id) on delete cascade,
+  actor_id uuid not null references public.profiles (id) on delete cascade,
+  action text not null check (action in ('Submetido', 'Aprovado', 'Rejeitado', 'Cancelado')),
+  note text,
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.notifications (
@@ -224,7 +224,7 @@ begin
   end if;
   if employee_leave_days < 22 or employee_leave_days > 60 then
     raise exception 'Saldo inválido';
-  end;
+  end if;
   update public.profiles
   set full_name = employee_name,
       role = employee_role,
@@ -275,7 +275,7 @@ begin
       when 'Rejeitado' then 'Rejeitado'
       when 'Cancelado' then 'Cancelado'
       else 'Submetido' end, new.decision_note);
-  end;
+  end if;
   return new;
 end;
 $$;
