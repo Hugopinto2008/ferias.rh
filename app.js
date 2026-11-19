@@ -9,6 +9,7 @@ const PEOPLE = [{
   initials: window.APP_USER.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
   color: "#dcebd9",
   balance: window.APP_USER.annualLeaveDays,
+  hireDate: window.APP_USER.hireDate || "2025-01-01",
 }];
 
 function localISO(date) {
@@ -93,15 +94,66 @@ function dateAtNoon(value) {
   return new Date(`${value}T12:00:00`);
 }
 
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day, 12);
+}
+
+function portugueseHolidays(year) {
+  const easter = easterSunday(year);
+  const goodFriday = new Date(easter);
+  goodFriday.setDate(easter.getDate() - 2);
+  const corpusChristi = new Date(easter);
+  corpusChristi.setDate(easter.getDate() + 60);
+  const fixed = [
+    [1, 1], [4, 25], [5, 1], [6, 10], [8, 15],
+    [10, 5], [11, 1], [12, 1], [12, 8], [12, 25],
+  ];
+  const holidays = new Set(fixed.map(([month, day]) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`));
+  [goodFriday, easter, corpusChristi].forEach((date) => holidays.add(localISO(date)));
+  return holidays;
+}
+
 function businessDays(start, end) {
   let count = 0;
   const date = dateAtNoon(start);
   const last = dateAtNoon(end);
+  const holidays = portugueseHolidays(date.getFullYear());
+  if (last.getFullYear() !== date.getFullYear()) {
+    for (let year = date.getFullYear(); year <= last.getFullYear(); year += 1) {
+      portugueseHolidays(year).forEach((holiday) => holidays.add(holiday));
+    }
+  }
   while (date <= last) {
-    if (date.getDay() !== 0 && date.getDay() !== 6) count += 1;
+    const iso = localISO(date);
+    if (date.getDay() !== 0 && date.getDay() !== 6 && !holidays.has(iso)) count += 1;
     date.setDate(date.getDate() + 1);
   }
   return count;
+}
+
+function annualLeaveEntitlement(person, year = new Date().getFullYear()) {
+  if (!person?.hireDate) return Math.max(22, Number(person?.balance) || 22);
+  const hireDate = dateAtNoon(person.hireDate);
+  if (hireDate.getFullYear() > year) return 0;
+  if (hireDate.getFullYear() < year) return Math.max(22, Number(person?.balance) || 22);
+  let completeMonths = (year - hireDate.getFullYear()) * 12 + (12 - hireDate.getMonth());
+  if (hireDate.getDate() > 1) completeMonths -= 1;
+  completeMonths = Math.max(0, Math.min(12, completeMonths));
+  return Math.min(20, completeMonths * 2);
 }
 
 function personAvatar(person, extraClass = "") {
@@ -150,14 +202,15 @@ function renderOverview() {
   const scopedRequests = isManager() ? state.requests : myRequests;
   const pending = scopedRequests.filter((request) => request.status === "Pendente");
   const upcoming = scopedRequests.filter((request) => request.status === "Aprovado" && request.end >= dateOffset(0)).sort((a, b) => a.start.localeCompare(b.start));
-  const daysLeft = Math.max(0, person.balance - usedDays);
+  const annualEntitlement = annualLeaveEntitlement(person);
+  const daysLeft = Math.max(0, annualEntitlement - usedDays);
   const createButton = `<button class="primary-button" data-action="new-request"><span class="button-icon">＋</span>Novo pedido</button>`;
   if (!isManager()) {
     const nextHoliday = upcoming[0];
     const daysUntilNext = nextHoliday ? Math.max(0, Math.ceil((dateAtNoon(nextHoliday.start) - dateAtNoon(dateOffset(0))) / 86400000)) : null;
     return `${pageHeading("ESPAÇO PESSOAL", `Olá, ${escapeHtml(person.name.split(" ")[0])}`, "Acompanha o teu saldo e os teus pedidos de férias.", createButton)}
       <section class="overview-grid">
-        <article class="metric-card"><div class="metric-top">Saldo disponível <span class="metric-icon green">◷</span></div><div class="metric-value"><strong>${daysLeft}</strong><span>dias</span></div><div class="metric-foot">de ${person.balance} dias anuais</div></article>
+        <article class="metric-card"><div class="metric-top">Saldo disponível <span class="metric-icon green">◷</span></div><div class="metric-value"><strong>${daysLeft}</strong><span>dias</span></div><div class="metric-foot">de ${annualEntitlement} dias anuais</div></article>
         <article class="metric-card"><div class="metric-top">Os meus pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">A aguardar decisão do administrador</div></article>
         <article class="metric-card"><div class="metric-top">Dias utilizados <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${usedDays}</strong><span>dias</span></div><div class="metric-foot">Neste ano</div></article>
         <article class="metric-card"><div class="metric-top">Próximas férias <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${daysUntilNext ?? "—"}</strong><span>${daysUntilNext === null ? "sem data" : daysUntilNext === 1 ? "dia" : "dias"}</span></div><div class="metric-foot">${nextHoliday ? `${shortDate.format(dateAtNoon(nextHoliday.start))} – ${shortDate.format(dateAtNoon(nextHoliday.end))}` : "Ainda sem férias aprovadas"}</div></article>
@@ -295,7 +348,8 @@ function renderTeamPage() {
   const people = visiblePeople.filter((person) => !searchTerm || person.name.toLowerCase().includes(searchTerm.toLowerCase()) || person.department.toLowerCase().includes(searchTerm.toLowerCase()));
   const cards = people.map((person) => {
     const used = state.requests.filter((request) => request.userId === person.id && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
-    return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, person.balance - used)} de ${person.balance} dias</strong></div></article>`;
+    const entitlement = annualLeaveEntitlement(person);
+    return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, entitlement - used)} de ${entitlement} dias</strong></div></article>`;
   }).join("");
   const button = isManager() ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
   return `${pageHeading("PESSOAS", isManager() ? "A tua equipa" : "O meu perfil", isManager() ? `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.` : "Consulta o teu perfil e saldo de férias.", button)}${isManager() ? `<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div>` : ""}<section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
@@ -304,7 +358,7 @@ function renderTeamPage() {
 function renderAdminPage() {
   if (!isManager()) return renderOverview();
   const pendingCount = state.requests.filter((request) => request.status === "Pendente").length;
-  return `${pageHeading("CONFIGURAÇÃO", "Administração", "Define as regras de férias e acompanha a atividade da empresa.")}<div class="settings-grid"><div><article class="panel settings-section"><h2 class="panel-title">Política de férias</h2><p class="panel-note">Regras aplicadas aos colaboradores da empresa.</p><div class="setting-line"><div><strong>Dias anuais por defeito</strong><small>Saldo atribuído a novos colaboradores</small></div><input class="setting-input" id="annual-days" type="number" min="1" max="60" value="${state.settings.annualDays}" /></div><div class="setting-line"><div><strong>Limite de ausências simultâneas</strong><small>Número máximo de pessoas de férias ao mesmo tempo</small></div><input class="setting-input" id="conflict-limit" type="number" min="1" max="20" value="${state.settings.conflictLimit}" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Alertas para pedidos e decisões</small></div><input class="switch" id="notifications-setting" type="checkbox" ${state.settings.notifications ? "checked" : ""} /></div><button class="primary-button" data-action="save-settings">Guardar alterações</button></article><article class="panel settings-section"><h2 class="panel-title">Dados locais</h2><p class="panel-note">Este protótipo guarda os dados neste navegador.</p><div class="setting-line"><div><strong>Repor dados de demonstração</strong><small>Apaga as alterações e restaura os dados iniciais.</small></div><button class="danger-button" data-action="reset-data">Repor dados</button></div></article></div><aside><article class="panel settings-section"><h2 class="panel-title">Resumo da empresa</h2><div class="balance-stat"><strong>${state.people.length}</strong><span>colaboradores registados</span></div><div class="setting-line"><div><strong>Pedidos pendentes</strong><small>A aguardar decisão do responsável</small></div><span class="setting-value">${pendingCount}</span></div><div class="setting-line"><div><strong>Departamentos</strong><small>Equipas ativas</small></div><span class="setting-value">${new Set(state.people.map((person) => person.department)).size}</span></div></article></aside></div>`;
+  return `${pageHeading("CONFIGURAÇÃO", "Administração", "Define as regras de férias e acompanha a atividade da empresa.")}<div class="settings-grid"><div><article class="panel settings-section"><h2 class="panel-title">Política de férias</h2><p class="panel-note">Regras aplicadas aos colaboradores da empresa.</p><div class="setting-line"><div><strong>Dias anuais por defeito</strong><small>Portugal continental: mínimo legal de 22 dias úteis</small></div><input class="setting-input" id="annual-days" type="number" min="22" max="60" value="${Math.max(22, state.settings.annualDays)}" /></div><div class="setting-line"><div><strong>Limite de ausências simultâneas</strong><small>Número máximo de pessoas de férias ao mesmo tempo</small></div><input class="setting-input" id="conflict-limit" type="number" min="1" max="20" value="${state.settings.conflictLimit}" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Alertas para pedidos e decisões</small></div><input class="switch" id="notifications-setting" type="checkbox" ${state.settings.notifications ? "checked" : ""} /></div><button class="primary-button" data-action="save-settings">Guardar alterações</button></article><article class="panel settings-section"><h2 class="panel-title">Dados locais</h2><p class="panel-note">Este protótipo guarda os dados neste navegador.</p><div class="setting-line"><div><strong>Repor dados de demonstração</strong><small>Apaga as alterações e restaura os dados iniciais.</small></div><button class="danger-button" data-action="reset-data">Repor dados</button></div></article></div><aside><article class="panel settings-section"><h2 class="panel-title">Resumo da empresa</h2><div class="balance-stat"><strong>${state.people.length}</strong><span>colaboradores registados</span></div><div class="setting-line"><div><strong>Pedidos pendentes</strong><small>A aguardar decisão do responsável</small></div><span class="setting-value">${pendingCount}</span></div><div class="setting-line"><div><strong>Departamentos</strong><small>Equipas ativas</small></div><span class="setting-value">${new Set(state.people.map((person) => person.department)).size}</span></div></article></aside></div>`;
 }
 
 function openModal(title, subtitle, body, onSubmit) {
@@ -341,7 +395,7 @@ function newRequestModal() {
     }
     return maximum;
   };
-  openModal("Novo pedido de férias", "Escolhe as datas e envia o pedido para aprovação.", `<div class="form-field"><label for="request-person">Colaborador</label>${isManager() ? `<select class="form-control" name="userId" id="request-person">${state.people.map((employee) => `<option value="${employee.id}" ${employee.id === person.id ? "selected" : ""}>${escapeHtml(employee.name)} · ${escapeHtml(employee.department)}</option>`).join("")}</select>` : `<input type="hidden" name="userId" value="${person.id}" /><input class="form-control" value="${escapeHtml(person.name)}" disabled />`}</div><div class="form-row"><div class="form-field"><label for="request-start">Primeiro dia</label><input class="form-control" id="request-start" name="start" type="date" min="${dateOffset(0)}" required /></div><div class="form-field"><label for="request-end">Último dia</label><input class="form-control" id="request-end" name="end" type="date" min="${dateOffset(0)}" required /></div></div><div class="form-field"><label for="request-department">Tipo de ausência</label><select class="form-control" id="request-department" name="type"><option>Férias</option><option>Assunto pessoal</option></select></div><div class="form-field"><label for="request-note">Nota para o responsável <span style="font-weight:400;color:#969d93">(opcional)</span></label><textarea class="form-control" id="request-note" name="note" placeholder="Partilha algum detalhe útil..."></textarea></div><p class="form-hint" id="request-hint">Os dias de fim de semana não são descontados do saldo.</p>`, (form) => {
+  openModal("Novo pedido de férias", "Escolhe as datas e envia o pedido para aprovação.", `<div class="form-field"><label for="request-person">Colaborador</label>${isManager() ? `<select class="form-control" name="userId" id="request-person">${state.people.map((employee) => `<option value="${employee.id}" ${employee.id === person.id ? "selected" : ""}>${escapeHtml(employee.name)} · ${escapeHtml(employee.department)}</option>`).join("")}</select>` : `<input type="hidden" name="userId" value="${person.id}" /><input class="form-control" value="${escapeHtml(person.name)}" disabled />`}</div><div class="form-row"><div class="form-field"><label for="request-start">Primeiro dia</label><input class="form-control" id="request-start" name="start" type="date" min="${dateOffset(0)}" required /></div><div class="form-field"><label for="request-end">Último dia</label><input class="form-control" id="request-end" name="end" type="date" min="${dateOffset(0)}" required /></div></div><div class="form-field"><label for="request-department">Tipo de ausência</label><select class="form-control" id="request-department" name="type"><option>Férias</option><option>Assunto pessoal</option></select></div><div class="form-field"><label for="request-note">Nota para o responsável <span style="font-weight:400;color:#969d93">(opcional)</span></label><textarea class="form-control" id="request-note" name="note" placeholder="Partilha algum detalhe útil..."></textarea></div><p class="form-hint" id="request-hint">Os fins de semana e feriados portugueses não são descontados do saldo.</p>`, (form) => {
     const userId = form.get("userId");
     const start = form.get("start");
     const end = form.get("end");
@@ -350,7 +404,8 @@ function newRequestModal() {
     if (!days) { showToast("O período tem de incluir pelo menos um dia útil."); return; }
     const employee = personById(userId);
     const used = state.requests.filter((request) => request.userId === userId && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
-    if (days > Math.max(0, employee.balance - used)) { showToast("O pedido excede o saldo de férias disponível."); return; }
+    const entitlement = annualLeaveEntitlement(employee);
+    if (days > Math.max(0, entitlement - used)) { showToast("O pedido excede o saldo de férias disponível."); return; }
     if (overlapping(userId, start, end) + 1 > state.settings.conflictLimit) { showToast("Aviso: há várias pessoas de férias neste período."); }
     state.requests.unshift({ id: `r-${Date.now()}`, userId, start, end, days, type: form.get("type"), status: "Pendente", note: form.get("note"), created: dateOffset(0) });
     save(); closeModal(); render(); showToast("Pedido enviado para aprovação.");
@@ -368,12 +423,12 @@ function newRequestModal() {
 }
 
 function newEmployeeModal() {
-  openModal("Adicionar colaborador", "Cria um novo perfil para a equipa.", `<div class="form-field"><label for="employee-name">Nome completo</label><input class="form-control" id="employee-name" name="name" required maxlength="60" /></div><div class="form-row"><div class="form-field"><label for="employee-role">Perfil</label><select class="form-control" id="employee-role" name="role"><option>Colaborador</option><option>Responsável</option></select></div><div class="form-field"><label for="employee-department">Departamento</label><input class="form-control" id="employee-department" name="department" required maxlength="40" /></div></div><div class="form-field"><label for="employee-title">Função</label><input class="form-control" id="employee-title" name="title" maxlength="50" placeholder="Ex.: Designer" /></div><div class="form-field"><label for="employee-balance">Dias anuais de férias</label><input class="form-control" id="employee-balance" name="balance" type="number" min="1" max="60" value="${state.settings.annualDays}" required /></div>`, (form) => {
+  openModal("Adicionar colaborador", "Cria um novo perfil para a equipa.", `<div class="form-field"><label for="employee-name">Nome completo</label><input class="form-control" id="employee-name" name="name" required maxlength="60" /></div><div class="form-row"><div class="form-field"><label for="employee-role">Perfil</label><select class="form-control" id="employee-role" name="role"><option>Colaborador</option><option>Responsável</option></select></div><div class="form-field"><label for="employee-department">Departamento</label><input class="form-control" id="employee-department" name="department" required maxlength="40" /></div></div><div class="form-row"><div class="form-field"><label for="employee-hire-date">Data de admissão</label><input class="form-control" id="employee-hire-date" name="hireDate" type="date" value="${dateOffset(-365)}" required /></div><div class="form-field"><label for="employee-balance">Dias anuais de férias</label><input class="form-control" id="employee-balance" name="balance" type="number" min="22" max="60" value="${Math.max(22, state.settings.annualDays)}" required /></div></div><div class="form-field"><label for="employee-title">Função</label><input class="form-control" id="employee-title" name="title" maxlength="50" placeholder="Ex.: Designer" /></div>`, (form) => {
     const name = String(form.get("name")).trim();
     const department = String(form.get("department")).trim();
     if (!name || !department) { showToast("Preenche o nome e o departamento."); return; }
     const palette = ["#e7e4f1", "#dcebd9", "#f5ddd0", "#d8e7eb", "#f3e3aa"];
-    state.people.push({ id: `u-${Date.now()}`, name, role: form.get("role"), title: String(form.get("title")).trim() || "Colaborador", department, initials: initials(name), color: palette[state.people.length % palette.length], balance: Number(form.get("balance")) });
+    state.people.push({ id: `u-${Date.now()}`, name, role: form.get("role"), title: String(form.get("title")).trim() || "Colaborador", department, initials: initials(name), color: palette[state.people.length % palette.length], balance: Math.max(22, Number(form.get("balance")) || 22), hireDate: String(form.get("hireDate") || "2025-01-01") });
     save(); closeModal(); render(); showToast("Colaborador adicionado à equipa.");
   });
   modalLayer.querySelector(".modal-footer .primary-button").textContent = "Adicionar colaborador";
@@ -433,7 +488,7 @@ document.addEventListener("click", (event) => {
     else if (name === "calendar-next" || name === "mini-next") { calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1); render(); }
     else if (name === "today") { calendarDate = new Date(); render(); }
     else if (name === "save-settings") {
-      state.settings.annualDays = Math.min(60, Math.max(1, Number(document.querySelector("#annual-days").value) || 22));
+      state.settings.annualDays = Math.min(60, Math.max(22, Number(document.querySelector("#annual-days").value) || 22));
       state.settings.conflictLimit = Math.min(20, Math.max(1, Number(document.querySelector("#conflict-limit").value) || 2));
       state.settings.notifications = document.querySelector("#notifications-setting").checked;
       save(); render(); showToast("Definições guardadas.");
