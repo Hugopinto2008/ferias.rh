@@ -207,13 +207,13 @@ h1 { font: 700 27px/1.2 Manrope, sans-serif; letter-spacing: 0; margin-bottom: 7
 .report-panel { padding-bottom: 16px; }
 .report-bars { display: grid; gap: 13px; padding: 4px 18px 18px; }
 .report-bar-row { display: grid; gap: 7px; }
-.report-bar-row > div:first-child { display: flex; justify-content: space-between; }
+.report-bar-label { align-items: baseline; display: flex !important; justify-content: space-between; width: 100%; }
 .report-bar-row strong { font-size: 10px; }
 .report-bar-row span { color: var(--muted); font-size: 9px; }
 .report-bar { background: #edf0ea; border-radius: 20px; height: 7px; overflow: hidden; }
 .report-bar span { background: #76966d; display: block; height: 100%; }
 .report-status { display: grid; gap: 8px; padding: 4px 18px 18px; }
-.report-status div { align-items: center; border-bottom: 1px solid #f0f1ed; display: grid; gap: 8px; grid-template-columns: 9px 1fr auto; padding: 9px 0; }
+.report-status-row { align-items: center; border-bottom: 1px solid #f0f1ed; display: grid !important; gap: 8px; grid-template-columns: 9px 1fr auto; padding: 9px 0; width: 100%; }
 .report-status strong { font-size: 10px; }
 .report-status b { font-size: 12px; }
 .report-status-dot { border-radius: 50%; height: 7px; width: 7px; }
