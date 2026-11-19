@@ -32,6 +32,15 @@ button { color: inherit; cursor: pointer; }
 .brand-name { font: 800 23px/1 Manrope, sans-serif; letter-spacing: 0; }
 .brand-dot { color: var(--coral); }
 .workspace-label, .nav-label { color: #a0a59d; font-size: 9px; font-weight: 700; letter-spacing: 1.1px; padding: 0 10px; }
+.workspace-popover { background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); left: 18px; min-width: 214px; padding: 8px; position: fixed; top: 116px; z-index: 8; }
+.workspace-popover button { background: transparent; border: 0; border-radius: 7px; display: grid; gap: 3px; padding: 9px; text-align: left; width: 100%; }
+.workspace-popover button:hover { background: #f3f5ef; }
+.workspace-popover button strong { font-size: 10px; }
+.workspace-popover button small { color: var(--muted); font-size: 9px; }
+.workspace-summary { border-bottom: 1px solid #f0f1ed; display: grid; gap: 3px; margin-bottom: 5px; padding: 7px 9px 10px; }
+.workspace-summary strong { font-size: 12px; }
+.workspace-summary span { color: var(--muted); font-size: 9px; }
+.setting-input-wide { text-align: left; width: 180px; }
 .workspace-switch { align-items: center; background: linear-gradient(180deg, #ffffff 0%, #f5f8f2 100%); border: 1px solid var(--line); border-radius: 12px; display: flex; gap: 10px; margin: 10px 0 31px; padding: 10px; text-align: left; width: 100%; box-shadow: var(--shadow-soft); }
 .workspace-avatar { align-items: center; background: linear-gradient(135deg, #fbe0d2 0%, #f4c8b0 100%); border-radius: 9px; color: #6c4536; display: flex; font: 700 13px Manrope, sans-serif; height: 34px; justify-content: center; width: 34px; }
 .workspace-copy, .profile-copy { display: grid; gap: 3px; min-width: 0; }

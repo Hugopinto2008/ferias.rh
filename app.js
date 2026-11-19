@@ -30,7 +30,7 @@ function makeSeed() {
     people: structuredClone(PEOPLE),
     requests: [],
     currentUserId: String(window.APP_USER.id),
-    settings: { annualDays: 22, conflictLimit: 2, notifications: true },
+    settings: { annualDays: 22, conflictLimit: 2, notifications: true, companyName: "Norte & Co.", planName: "Plano Equipa" },
   };
 }
 
@@ -164,8 +164,35 @@ function statusClass(status) {
   return status === "Aprovado" ? "status-approved" : status === "Pendente" ? "status-pending" : "status-rejected";
 }
 
+function companyName() {
+  return state.settings.companyName || "Norte & Co.";
+}
+
+function toggleWorkspaceMenu() {
+  document.querySelector(".workspace-popover")?.remove();
+  const popover = document.createElement("div");
+  popover.className = "workspace-popover";
+  const targetOptions = isManager()
+    ? `<button type="button" data-action="workspace-admin"><strong>Configurações da empresa</strong><small>Alterar nome, plano e regras</small></button>`
+    : `<button type="button" data-view="equipa"><strong>O meu perfil</strong><small>Consultar saldo e dados pessoais</small></button>`;
+  popover.innerHTML = `<div class="popover-title">Espaço de trabalho</div><div class="workspace-summary"><strong>${escapeHtml(companyName())}</strong><span>${escapeHtml(state.settings.planName || "Plano Equipa")}</span></div>${targetOptions}<button type="button" data-view="calendario"><strong>Calendário</strong><small>${isManager() ? "Ver planeamento da equipa" : "Ver os meus períodos de férias"}</small></button>`;
+  document.body.append(popover);
+  setTimeout(() => document.addEventListener("click", function closeWorkspace(event) {
+    if (!popover.contains(event.target) && !event.target.closest("[data-action='open-workspace']")) {
+      popover.remove();
+      document.removeEventListener("click", closeWorkspace);
+    }
+  }), 0);
+}
+
 function setProfile() {
   const person = currentUser();
+  const workspaceAvatar = document.querySelector("#workspace-avatar");
+  if (workspaceAvatar) workspaceAvatar.textContent = companyName().trim().charAt(0).toUpperCase();
+  const workspaceName = document.querySelector("#workspace-name");
+  if (workspaceName) workspaceName.textContent = companyName();
+  const workspacePlan = document.querySelector("#workspace-plan");
+  if (workspacePlan) workspacePlan.textContent = state.settings.planName || "Plano Equipa";
   document.querySelector("#profile-avatar").textContent = person.initials || initials(person.name);
   document.querySelector("#top-avatar").textContent = person.initials || initials(person.name);
   document.querySelector("#profile-name").textContent = person.name;
@@ -358,7 +385,7 @@ function renderTeamPage() {
 function renderAdminPage() {
   if (!isManager()) return renderOverview();
   const pendingCount = state.requests.filter((request) => request.status === "Pendente").length;
-  return `${pageHeading("CONFIGURAÇÃO", "Administração", "Define as regras de férias e acompanha a atividade da empresa.")}<div class="settings-grid"><div><article class="panel settings-section"><h2 class="panel-title">Política de férias</h2><p class="panel-note">Regras aplicadas aos colaboradores da empresa.</p><div class="setting-line"><div><strong>Dias anuais por defeito</strong><small>Portugal continental: mínimo legal de 22 dias úteis</small></div><input class="setting-input" id="annual-days" type="number" min="22" max="60" value="${Math.max(22, state.settings.annualDays)}" /></div><div class="setting-line"><div><strong>Limite de ausências simultâneas</strong><small>Número máximo de pessoas de férias ao mesmo tempo</small></div><input class="setting-input" id="conflict-limit" type="number" min="1" max="20" value="${state.settings.conflictLimit}" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Alertas para pedidos e decisões</small></div><input class="switch" id="notifications-setting" type="checkbox" ${state.settings.notifications ? "checked" : ""} /></div><button class="primary-button" data-action="save-settings">Guardar alterações</button></article><article class="panel settings-section"><h2 class="panel-title">Dados locais</h2><p class="panel-note">Este protótipo guarda os dados neste navegador.</p><div class="setting-line"><div><strong>Repor dados de demonstração</strong><small>Apaga as alterações e restaura os dados iniciais.</small></div><button class="danger-button" data-action="reset-data">Repor dados</button></div></article></div><aside><article class="panel settings-section"><h2 class="panel-title">Resumo da empresa</h2><div class="balance-stat"><strong>${state.people.length}</strong><span>colaboradores registados</span></div><div class="setting-line"><div><strong>Pedidos pendentes</strong><small>A aguardar decisão do responsável</small></div><span class="setting-value">${pendingCount}</span></div><div class="setting-line"><div><strong>Departamentos</strong><small>Equipas ativas</small></div><span class="setting-value">${new Set(state.people.map((person) => person.department)).size}</span></div></article></aside></div>`;
+  return `${pageHeading("CONFIGURAÇÃO", "Administração", "Define as regras de férias e acompanha a atividade da empresa.")}<div class="settings-grid"><div><article class="panel settings-section"><h2 class="panel-title">Política de férias</h2><p class="panel-note">Regras aplicadas aos colaboradores da empresa.</p><div class="setting-line"><div><strong>Nome da empresa</strong><small>Nome apresentado no espaço de trabalho</small></div><input class="setting-input setting-input-wide" id="company-name" type="text" maxlength="40" value="${escapeHtml(companyName())}" /></div><div class="setting-line"><div><strong>Nome do plano</strong><small>Descrição apresentada no seletor</small></div><input class="setting-input setting-input-wide" id="workspace-plan-name" type="text" maxlength="40" value="${escapeHtml(state.settings.planName || "Plano Equipa")}" /></div><div class="setting-line"><div><strong>Dias anuais por defeito</strong><small>Portugal continental: mínimo legal de 22 dias úteis</small></div><input class="setting-input" id="annual-days" type="number" min="22" max="60" value="${Math.max(22, state.settings.annualDays)}" /></div><div class="setting-line"><div><strong>Limite de ausências simultâneas</strong><small>Número máximo de pessoas de férias ao mesmo tempo</small></div><input class="setting-input" id="conflict-limit" type="number" min="1" max="20" value="${state.settings.conflictLimit}" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Alertas para pedidos e decisões</small></div><input class="switch" id="notifications-setting" type="checkbox" ${state.settings.notifications ? "checked" : ""} /></div><button class="primary-button" data-action="save-settings">Guardar alterações</button></article><article class="panel settings-section"><h2 class="panel-title">Dados locais</h2><p class="panel-note">Este protótipo guarda os dados neste navegador.</p><div class="setting-line"><div><strong>Repor dados de demonstração</strong><small>Apaga as alterações e restaura os dados iniciais.</small></div><button class="danger-button" data-action="reset-data">Repor dados</button></div></article></div><aside><article class="panel settings-section"><h2 class="panel-title">Resumo da empresa</h2><div class="balance-stat"><strong>${state.people.length}</strong><span>colaboradores registados</span></div><div class="setting-line"><div><strong>Pedidos pendentes</strong><small>A aguardar decisão do responsável</small></div><span class="setting-value">${pendingCount}</span></div><div class="setting-line"><div><strong>Departamentos</strong><small>Equipas ativas</small></div><span class="setting-value">${new Set(state.people.map((person) => person.department)).size}</span></div></article></aside></div>`;
 }
 
 function openModal(title, subtitle, body, onSubmit) {
@@ -489,7 +516,9 @@ document.addEventListener("click", (event) => {
   if (action) {
     const { action: name, id } = action.dataset;
     if (["new-employee", "save-settings", "reset-data"].includes(name) && !isManager()) return;
-    if (name === "new-request") newRequestModal();
+    if (name === "open-workspace") toggleWorkspaceMenu();
+    else if (name === "workspace-admin") { currentView = "administracao"; render(); }
+    else if (name === "new-request") newRequestModal();
     else if (name === "new-employee") newEmployeeModal();
     else if (name === "close-modal") closeModal();
     else if (name === "approve") changeRequest(id, "Aprovado");
@@ -502,6 +531,8 @@ document.addEventListener("click", (event) => {
       state.settings.annualDays = Math.min(60, Math.max(22, Number(document.querySelector("#annual-days").value) || 22));
       state.settings.conflictLimit = Math.min(20, Math.max(1, Number(document.querySelector("#conflict-limit").value) || 2));
       state.settings.notifications = document.querySelector("#notifications-setting").checked;
+      state.settings.companyName = String(document.querySelector("#company-name")?.value || "Norte & Co.").trim() || "Norte & Co.";
+      state.settings.planName = String(document.querySelector("#workspace-plan-name")?.value || "Plano Equipa").trim() || "Plano Equipa";
       save(); render(); showToast("Definições guardadas.");
     } else if (name === "reset-data") {
       if (window.confirm("Esta ação apaga as alterações guardadas neste navegador. Continuar?")) { state = makeSeed(); save(); currentView = "inicio"; render(); showToast("Dados de demonstração repostos."); }
