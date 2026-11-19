@@ -30,7 +30,7 @@ function makeSeed() {
     people: structuredClone(PEOPLE),
     requests: [],
     currentUserId: String(window.APP_USER.id),
-    settings: { annualDays: 22, conflictLimit: 2, notifications: true, companyName: "Norte & Co.", planName: "Plano Equipa" },
+    settings: { annualDays: 22, conflictLimit: 2, notifications: true, companyName: "Nexona Area", planName: "Plano Equipa" },
   };
 }
 
@@ -165,7 +165,7 @@ function statusClass(status) {
 }
 
 function companyName() {
-  return state.settings.companyName || "Norte & Co.";
+  return state.settings.companyName || "Nexona Area";
 }
 
 function toggleWorkspaceMenu() {
@@ -253,7 +253,7 @@ function renderOverview() {
     <section class="overview-grid">
       <article class="metric-card"><div class="metric-top">Colaboradores <span class="metric-icon green">♧</span></div><div class="metric-value"><strong>${state.people.length}</strong><span>pessoas</span></div><div class="metric-foot">Registadas na equipa</div></article>
       <article class="metric-card"><div class="metric-top">Pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">${isManager() ? "A aguardar a tua decisão" : "A aguardar aprovação"}</div></article>
-      <article class="metric-card"><div class="metric-top">De férias este mês <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${countAwayThisMonth()}</strong><span>pessoas</span></div><div class="metric-foot">Na equipa Norte & Co.</div></article>
+      <article class="metric-card"><div class="metric-top">De férias este mês <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${countAwayThisMonth()}</strong><span>pessoas</span></div><div class="metric-foot">Na equipa Nexona Area</div></article>
       <article class="metric-card"><div class="metric-top">Dias aprovados este ano <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${companyUsedDays}</strong><span>dias</span></div><div class="metric-foot">Total da equipa</div></article>
     </section>
     <section class="dashboard-columns">
@@ -531,7 +531,7 @@ document.addEventListener("click", (event) => {
       state.settings.annualDays = Math.min(60, Math.max(22, Number(document.querySelector("#annual-days").value) || 22));
       state.settings.conflictLimit = Math.min(20, Math.max(1, Number(document.querySelector("#conflict-limit").value) || 2));
       state.settings.notifications = document.querySelector("#notifications-setting").checked;
-      state.settings.companyName = String(document.querySelector("#company-name")?.value || "Norte & Co.").trim() || "Norte & Co.";
+      state.settings.companyName = String(document.querySelector("#company-name")?.value || "Nexona Area").trim() || "Nexona Area";
       state.settings.planName = String(document.querySelector("#workspace-plan-name")?.value || "Plano Equipa").trim() || "Plano Equipa";
       save(); render(); showToast("Definições guardadas.");
     } else if (name === "reset-data") {
