@@ -109,7 +109,7 @@ create policy "leave_select_own_or_manager"
 drop policy if exists "leave_insert_own" on public.leave_requests;
 create policy "leave_insert_own"
   on public.leave_requests for insert to authenticated
-  with check (user_id = (select auth.uid()));
+  with check (user_id = (select auth.uid()) or public.is_manager());
 
 drop policy if exists "leave_update_own_cancel_or_manager" on public.leave_requests;
 create policy "leave_update_own_cancel_or_manager"
@@ -155,6 +155,27 @@ create policy "company_settings_update_manager"
   using (public.is_manager())
   with check (public.is_manager());
 
+create or replace function public.update_notification_preferences(
+  wants_email boolean,
+  wants_in_app boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.profiles
+  set email_notifications = wants_email,
+      in_app_notifications = wants_in_app
+  where id = (select auth.uid());
+end;
+$$;
+
+revoke all on function public.update_notification_preferences(boolean, boolean) from public;
+grant execute on function public.update_notification_preferences(boolean, boolean) to authenticated;
+
+drop function if exists public.update_employee_profile(uuid, text, text, text, text, date, smallint);
 
 create or replace function public.create_profile_for_new_user()
 returns trigger
@@ -208,7 +229,8 @@ create or replace function public.update_employee_profile(
   employee_department text,
   employee_title text,
   employee_hire_date date,
-  employee_leave_days smallint
+  employee_leave_days smallint,
+  employee_active boolean
 )
 returns void
 language plpgsql
@@ -231,7 +253,8 @@ begin
       department = employee_department,
       job_title = employee_title,
       hire_date = employee_hire_date,
-      annual_leave_days = employee_leave_days
+      annual_leave_days = employee_leave_days,
+      is_active = employee_active
   where id = employee_id;
 end;
 $$;

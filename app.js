@@ -10,6 +10,7 @@ const PEOPLE = [{
   color: "#dcebd9",
   balance: window.APP_USER.annualLeaveDays,
   hireDate: window.APP_USER.hireDate || "2025-01-01",
+  isActive: window.APP_USER.isActive !== false,
 }];
 
 function localISO(date) {
@@ -94,7 +95,7 @@ async function syncBackendData() {
   if (!backend || isDemoSession) return;
   try {
     const [{ data: profiles }, { data: requests }, { data: notifications }, { data: audit }, { data: company }] = await Promise.all([
-      backend.from("profiles").select("id, full_name, role, department, job_title, hire_date, annual_leave_days"),
+      backend.from("profiles").select("id, full_name, role, department, job_title, hire_date, annual_leave_days, is_active, email_notifications, in_app_notifications"),
       backend.from("leave_requests").select("id, user_id, start_date, end_date, days_count, absence_type, note, status, decision_note, created_at"),
       backend.from("notifications").select("id, title, message, read_at, created_at").order("created_at", { ascending: false }).limit(20),
       backend.from("leave_audit").select("request_id, actor_id, action, note, created_at").order("created_at", { ascending: false }).limit(100),
@@ -106,7 +107,8 @@ async function syncBackendData() {
         id: String(profile.id), name: profile.full_name, role: profile.role,
         title: profile.job_title || "Colaborador", department: profile.department,
         initials: initials(profile.full_name), color: palette[index % palette.length],
-        balance: profile.annual_leave_days, hireDate: profile.hire_date,
+        balance: profile.annual_leave_days, hireDate: profile.hire_date, isActive: profile.is_active,
+        emailNotifications: profile.email_notifications, inAppNotifications: profile.in_app_notifications,
       }));
       state.currentUserId = String(window.APP_USER.id);
     }
@@ -320,7 +322,7 @@ function renderOverview() {
   const companyUsedDays = state.requests.filter((request) => request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((total, request) => total + request.days, 0);
   return `${pageHeading("BEM-VINDO DE VOLTA", `Olá, ${escapeHtml(person.name.split(" ")[0])} 👋`, "Aqui está o resumo das férias da tua equipa.", createButton)}
     <section class="overview-grid">
-      <article class="metric-card"><div class="metric-top">Colaboradores <span class="metric-icon green">♧</span></div><div class="metric-value"><strong>${state.people.length}</strong><span>pessoas</span></div><div class="metric-foot">Registadas na equipa</div></article>
+      <article class="metric-card"><div class="metric-top">Colaboradores ativos <span class="metric-icon green">♧</span></div><div class="metric-value"><strong>${state.people.filter((employee) => employee.isActive !== false).length}</strong><span>pessoas</span></div><div class="metric-foot">Registadas na equipa</div></article>
       <article class="metric-card"><div class="metric-top">Pedidos pendentes <span class="metric-icon orange">◷</span></div><div class="metric-value"><strong>${pending.length}</strong><span>${pending.length === 1 ? "pedido" : "pedidos"}</span></div><div class="metric-foot">${isManager() ? "A aguardar a tua decisão" : "A aguardar aprovação"}</div></article>
       <article class="metric-card"><div class="metric-top">De férias este mês <span class="metric-icon yellow">▦</span></div><div class="metric-value"><strong>${countAwayThisMonth()}</strong><span>pessoas</span></div><div class="metric-foot">Na equipa Nexona Area</div></article>
       <article class="metric-card"><div class="metric-top">Dias aprovados este ano <span class="metric-icon coral">↗</span></div><div class="metric-value"><strong>${companyUsedDays}</strong><span>dias</span></div><div class="metric-foot">Total da equipa</div></article>
@@ -504,7 +506,7 @@ function renderTeamPage() {
     const used = state.requests.filter((request) => request.userId === person.id && request.status === "Aprovado" && dateAtNoon(request.start).getFullYear() === new Date().getFullYear()).reduce((sum, request) => sum + request.days, 0);
     const entitlement = annualLeaveEntitlement(person);
     const editButton = isManager() ? `<button class="text-link" data-action="edit-employee" data-id="${person.id}">Editar perfil ↗</button>` : "";
-    return `<article class="employee-card"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, entitlement - used)} de ${entitlement} dias</strong></div>${editButton ? `<div class="employee-actions">${editButton}</div>` : ""}</article>`;
+    return `<article class="employee-card ${person.isActive === false ? "employee-inactive" : ""}"><div class="employee-card-top">${personAvatar(person)}<span class="role-tag">${person.isActive === false ? "Inativo" : escapeHtml(person.role)}</span></div><h3>${escapeHtml(person.name)}</h3><p>${escapeHtml(person.title || person.department)} · ${escapeHtml(person.department)}</p><div class="employee-details"><span>Saldo disponível</span><strong>${Math.max(0, entitlement - used)} de ${entitlement} dias</strong></div>${editButton ? `<div class="employee-actions">${editButton}</div>` : ""}</article>`;
   }).join("");
   const button = isManager() ? `<button class="primary-button" data-action="new-employee"><span class="button-icon">＋</span>Adicionar</button>` : "";
   return `${pageHeading("PESSOAS", isManager() ? "A tua equipa" : "O meu perfil", isManager() ? `${state.people.length} colaboradores em ${new Set(state.people.map((person) => person.department)).size} departamentos.` : "Consulta o teu perfil e saldo de férias.", button)}${isManager() ? `<div class="toolbar-row"><label class="search-field"><span>⌕</span><input id="team-search" type="search" placeholder="Pesquisar pessoa ou departamento" value="${escapeHtml(searchTerm)}" /></label></div>` : ""}<section class="team-grid">${cards || `<div class="no-results">Não foram encontrados colaboradores.</div>`}</section>`;
@@ -590,7 +592,7 @@ function newEmployeeModal() {
     const department = String(form.get("department")).trim();
     if (!name || !department) { showToast("Preenche o nome e o departamento."); return; }
     const palette = ["#e7e4f1", "#dcebd9", "#f5ddd0", "#d8e7eb", "#f3e3aa"];
-    state.people.push({ id: `u-${Date.now()}`, name, role: form.get("role"), title: String(form.get("title")).trim() || "Colaborador", department, initials: initials(name), color: palette[state.people.length % palette.length], balance: Math.max(22, Number(form.get("balance")) || 22), hireDate: String(form.get("hireDate") || "2025-01-01") });
+    state.people.push({ id: `u-${Date.now()}`, name, role: form.get("role"), title: String(form.get("title")).trim() || "Colaborador", department, initials: initials(name), color: palette[state.people.length % palette.length], balance: Math.max(22, Number(form.get("balance")) || 22), hireDate: String(form.get("hireDate") || "2025-01-01"), isActive: true });
     save(); closeModal(); render(); showToast("Colaborador adicionado à equipa.");
   });
   modalLayer.querySelector(".modal-footer .primary-button").textContent = "Adicionar colaborador";
@@ -598,7 +600,7 @@ function newEmployeeModal() {
 
 function openProfileModal() {
   const person = currentUser();
-  openModal("O meu perfil", "Altere a palavra-passe e as preferências da conta.", `<div class="form-field"><label>Nome</label><input class="form-control" value="${escapeHtml(person.name)}" readonly /></div><div class="form-field"><label>E-mail</label><input class="form-control" value="${escapeHtml(window.APP_USER.email || "")}" readonly /></div><div class="form-field"><label>Nova palavra-passe</label><input class="form-control" name="password" type="password" minlength="6" autocomplete="new-password" placeholder="Deixe vazio para não alterar" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Mostrar novos pedidos e decisões</small></div><input class="switch" name="inAppNotifications" type="checkbox" checked /></div><div class="setting-line"><div><strong>Notificações por e-mail</strong><small>Receber decisões por e-mail</small></div><input class="switch" name="emailNotifications" type="checkbox" checked /></div>`, async (form) => {
+  openModal("O meu perfil", "Altere a palavra-passe e as preferências da conta.", `<div class="form-field"><label>Nome</label><input class="form-control" value="${escapeHtml(person.name)}" readonly /></div><div class="form-field"><label>E-mail</label><input class="form-control" value="${escapeHtml(window.APP_USER.email || "")}" readonly /></div><div class="form-field"><label>Nova palavra-passe</label><input class="form-control" name="password" type="password" minlength="6" autocomplete="new-password" placeholder="Deixe vazio para não alterar" /></div><div class="setting-line"><div><strong>Notificações no sistema</strong><small>Mostrar novos pedidos e decisões</small></div><input class="switch" name="inAppNotifications" type="checkbox" ${person.inAppNotifications === false ? "" : "checked"} /></div><div class="setting-line"><div><strong>Notificações por e-mail</strong><small>Receber decisões por e-mail</small></div><input class="switch" name="emailNotifications" type="checkbox" ${person.emailNotifications === false ? "" : "checked"} /></div>`, async (form) => {
     const password = String(form.get("password") || "");
     if (password && password.length < 6) { showToast("A palavra-passe deve ter pelo menos 6 caracteres."); return; }
     if (password && backend && !isDemoSession) {
@@ -606,7 +608,13 @@ function openProfileModal() {
       if (error) { showToast("Não foi possível alterar a palavra-passe."); return; }
     }
     if (backend && !isDemoSession) {
-      await backend.from("profiles").update({ email_notifications: form.get("emailNotifications") === "on", in_app_notifications: form.get("inAppNotifications") === "on" }).eq("id", person.id);
+      person.emailNotifications = form.get("emailNotifications") === "on";
+      person.inAppNotifications = form.get("inAppNotifications") === "on";
+      const { error } = await backend.rpc("update_notification_preferences", {
+        wants_email: form.get("emailNotifications") === "on",
+        wants_in_app: form.get("inAppNotifications") === "on",
+      });
+      if (error) { showToast("Não foi possível guardar as preferências."); return; }
     }
     closeModal(); showToast(password ? "Perfil e palavra-passe atualizados." : "Preferências atualizadas.");
   });
@@ -616,7 +624,7 @@ function openProfileModal() {
 function editEmployeeModal(id) {
   const person = personById(id);
   if (!person) return;
-  openModal("Editar colaborador", "Atualize os dados do perfil e o estado da conta.", `<div class="form-field"><label>Nome completo</label><input class="form-control" name="name" value="${escapeHtml(person.name)}" required /></div><div class="form-row"><div class="form-field"><label>Perfil</label><select class="form-control" name="role"><option ${person.role === "Colaborador" ? "selected" : ""}>Colaborador</option><option ${person.role === "Responsável" ? "selected" : ""}>Responsável</option><option ${person.role === "Administrador" ? "selected" : ""}>Administrador</option></select></div><div class="form-field"><label>Departamento</label><input class="form-control" name="department" value="${escapeHtml(person.department)}" required /></div></div><div class="form-row"><div class="form-field"><label>Função</label><input class="form-control" name="title" value="${escapeHtml(person.title || "Colaborador")}" /></div><div class="form-field"><label>Dias anuais</label><input class="form-control" name="balance" type="number" min="22" max="60" value="${person.balance || 22}" required /></div></div><div class="form-field"><label>Data de admissão</label><input class="form-control" name="hireDate" type="date" value="${person.hireDate || dateOffset(-365)}" required /></div>`, async (form) => {
+  openModal("Editar colaborador", "Atualize os dados do perfil e o estado da conta.", `<div class="form-field"><label>Nome completo</label><input class="form-control" name="name" value="${escapeHtml(person.name)}" required /></div><div class="form-row"><div class="form-field"><label>Perfil</label><select class="form-control" name="role"><option ${person.role === "Colaborador" ? "selected" : ""}>Colaborador</option><option ${person.role === "Responsável" ? "selected" : ""}>Responsável</option><option ${person.role === "Administrador" ? "selected" : ""}>Administrador</option></select></div><div class="form-field"><label>Departamento</label><input class="form-control" name="department" value="${escapeHtml(person.department)}" required /></div></div><div class="form-row"><div class="form-field"><label>Função</label><input class="form-control" name="title" value="${escapeHtml(person.title || "Colaborador")}" /></div><div class="form-field"><label>Dias anuais</label><input class="form-control" name="balance" type="number" min="22" max="60" value="${person.balance || 22}" required /></div></div><div class="form-field"><label>Data de admissão</label><input class="form-control" name="hireDate" type="date" value="${person.hireDate || dateOffset(-365)}" required /></div><label class="setting-line"><span><strong>Colaborador ativo</strong><small>Desativar impede o acesso sem apagar o histórico</small></span><input class="switch" name="isActive" type="checkbox" ${person.isActive === false ? "" : "checked"} /></label>`, async (form) => {
     const name = String(form.get("name")).trim();
     const department = String(form.get("department")).trim();
     if (!name || !department) { showToast("Preencha o nome e o departamento."); return; }
@@ -626,10 +634,11 @@ function editEmployeeModal(id) {
     person.title = String(form.get("title")).trim() || "Colaborador";
     person.balance = Math.max(22, Number(form.get("balance")) || 22);
     person.hireDate = String(form.get("hireDate"));
+    person.isActive = form.get("isActive") === "on";
     person.initials = initials(name);
     save(); closeModal(); render(); showToast("Perfil atualizado.");
     if (backend && !isDemoSession) {
-      const { error } = await backend.rpc("update_employee_profile", { employee_id: id, employee_name: name, employee_role: person.role, employee_department: department, employee_title: person.title, employee_hire_date: person.hireDate, employee_leave_days: person.balance });
+      const { error } = await backend.rpc("update_employee_profile", { employee_id: id, employee_name: name, employee_role: person.role, employee_department: department, employee_title: person.title, employee_hire_date: person.hireDate, employee_leave_days: person.balance, employee_active: person.isActive });
       if (error) showToast("O perfil ficou local. Verifique as permissões do Supabase.");
     }
   });
